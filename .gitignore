@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.pyc
+
+# Virtual env
+venv/
+
+# OS/editor
+.DS_Store
+.idea/
+.vscode/
+
+# Artifacts
+playwright-report/
+test-results/
+out/
+
+# OCR debug
+ocr_debug.txt
+ocr_names_debug.txt
+
+# Data caches
+tessdata/
+node_modules/
+
