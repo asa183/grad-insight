@@ -6,15 +6,15 @@ on:
 jobs:
   build:
     runs-on: ubuntu-22.04
+    env:
+      GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+      SHEET_ID: ${{ secrets.SHEET_ID }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
       - name: Build examples targets JSON
-        env:
-          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
-          SHEET_ID: ${{ secrets.SHEET_ID }}
         run: |
           python -m pip install --quiet gspread google-auth
           python scripts/examples_to_targets_json.py
@@ -25,9 +25,6 @@ jobs:
         run: |
           python -m src.run_extract_examples config/examples_targets.json
       - name: Push CSVs to Google Sheets
-        env:
-          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
-          SHEET_ID: ${{ secrets.SHEET_ID }}
         run: |
           python -m pip install --quiet gspread google-auth
           python scripts/push_to_sheet.py
