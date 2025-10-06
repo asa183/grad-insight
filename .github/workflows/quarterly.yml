@@ -1,0 +1,83 @@
+name: Quarterly Extract to Google Sheets
+
+on:
+  schedule:
+    - cron: "0 0 1 1,4,7,10 *"  # UTC
+  workflow_dispatch: {}
+
+jobs:
+  build-targets:
+    runs-on: ubuntu-22.04
+    outputs:
+      matrix: ${{ steps.mk.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Build targets from Google Sheet
+        env:
+          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+          SHEET_ID: ${{ secrets.SHEET_ID }}
+        run: |
+          python -m pip install --quiet gspread google-auth
+          python scripts/sheet_to_targets_json.py
+      - id: mk
+        shell: bash
+        run: |
+          matrix=$(python - <<'PY'
+import json
+items=json.load(open('config/targets_flat.json'))
+print(json.dumps({'include':[{'id':i['id']} for i in items]}, ensure_ascii=False))
+PY
+          )
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
+  run:
+    needs: build-targets
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.build-targets.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install deps
+        run: |
+          python -m pip install --quiet requests beautifulsoup4 lxml
+      - name: Extract target
+        env:
+          TARGET_ID: ${{ matrix.id }}
+        run: |
+          python -m src.run_extract config/targets_flat.json "$TARGET_ID"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.id }}-csv
+          path: ${{ matrix.id }}.csv
+
+  push:
+    needs: run
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+      - name: Gather CSVs
+        run: |
+          shopt -s globstar; cp out/**/**/*.csv . || true
+          ls -1 *.csv
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Push to Google Sheets
+        if: ${{ secrets.GOOGLE_CREDENTIALS_JSON && secrets.SHEET_ID }}
+        env:
+          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+          SHEET_ID: ${{ secrets.SHEET_ID }}
+        run: |
+          python -m pip install --quiet gspread google-auth
+          python scripts/push_to_sheet.py
+

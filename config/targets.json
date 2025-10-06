@@ -1,0 +1,27 @@
+[
+  {
+    "id": "keio_fbc_marketing",
+    "university": "慶應義塾大学",
+    "graduate_school": "商学研究科",
+    "major": "商業学分野 Commercial science (Marketing)",
+    "url": "https://www.fbc.keio.ac.jp/graduate/shougyou.html",
+    "page_type": "table",
+    "selectors": {
+      "table_selector": "table",
+      "header_keywords": ["担当者", "専門分野"],
+      "name_cell_idx": 0,
+      "theme_cell_idx": 1,
+      "name_cleanup_regex": "(教授|准教授|特任教授|助教|担当者)"
+    },
+    "split_rules": {
+      "theme_split": "[、，,/／・\\n]+",
+      "theme_exclude": "Journal|Vol\\.|pp\\.|書房",
+      "max_topics": 12
+    },
+    "dynamic": { "use_playwright": false },
+    "fallback": { "use_ocr": false },
+    "expected_count_total": 9,
+    "enabled": true
+  }
+]
+

@@ -1,0 +1,35 @@
+name: Examples Extract to Google Sheets
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Build examples targets JSON
+        env:
+          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+          SHEET_ID: ${{ secrets.SHEET_ID }}
+        run: |
+          python -m pip install --quiet gspread google-auth
+          python scripts/examples_to_targets_json.py
+      - name: Install deps for extract
+        run: |
+          python -m pip install --quiet requests beautifulsoup4 lxml
+      - name: Extract from examples
+        run: |
+          python -m src.run_extract_examples config/examples_targets.json
+      - name: Push CSVs to Google Sheets
+        if: ${{ secrets.GOOGLE_CREDENTIALS_JSON && secrets.SHEET_ID }}
+        env:
+          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+          SHEET_ID: ${{ secrets.SHEET_ID }}
+        run: |
+          python -m pip install --quiet gspread google-auth
+          python scripts/push_to_sheet.py
+
