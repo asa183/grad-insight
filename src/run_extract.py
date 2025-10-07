@@ -98,26 +98,34 @@ def run_target(t: dict) -> list[dict]:
         if not merged[key]["タグ（JP）"] and tag:
             merged[key]["タグ（JP）"] = tag
 
-    # Selectors-driven path for Examples
-    if t.get("selectors") or (t.get("page_type") == "list"):
+    # Examples row path (prefer fixed -> CSS -> fallback -> empty)
+    if "fixed" in t:
         url = t.get("url", "")
-        if not url:
-            return []
-        html = fetch_dynamic_html(url) if t.get("dynamic") else fetch_html(url)
-        rows = extract_list_page(html, url, t.get("selectors", {}))
+        f = t.get("fixed", {})
+        sel = t.get("selectors", {})
+        use_fetch = False
+        # If any field missing and some selector provided or item_selector present, fetch
+        for k in ("lab", "name", "theme", "link", "tag"):
+            if not (f.get(k) or ""):
+                if any(sel.get(x) for x in (f"{k}_selector",)) or sel.get("item_selector"):
+                    use_fetch = True
+        rows_extracted = []
+        if use_fetch and url:
+            html = fetch_dynamic_html(url) if t.get("dynamic") else fetch_html(url)
+            rows_extracted = extract_list_page(html, url, sel)
+        # choose first extracted item for complements
+        cand = rows_extracted[0] if rows_extracted else {}
+        name_val = f.get("name") or cand.get("name", "")
+        theme_val = f.get("theme") or cand.get("theme", "")
+        link_val = f.get("link") or cand.get("link", "")
+        lab_val = f.get("lab") or cand.get("lab", "")
+        tag_val = f.get("tag") or cand.get("tag", "")
         today = datetime.date.today().isoformat()
-        empty_fields = 0
-        for r in rows:
-            name = r.get("name", "") or ""
-            theme = r.get("theme", "") or ""
-            link = r.get("link", "") or ""
-            lab = r.get("lab", "") or ""
-            tag = r.get("tag", "") or ""
-            empty_fields += int(name == "") + int(theme == "") + int(link == "")
-            merge(name, theme, link, url, today, lab=lab, tag=tag)
-        print(f"INFO examples id={t.get('id','')} url={url} page_type=list item_selector={t.get('selectors',{}).get('item_selector','')} count={len(rows)} empty_fields={empty_fields}")
-        if not rows:
-            print(f"WARN examples id={t.get('id','')}: no items or fields extracted")
+        src_used = "fixed" if any([f.get("name"), f.get("theme"), f.get("link"), f.get("lab"), f.get("tag")]) else ("css" if rows_extracted else "none")
+        print(f"INFO examples id={t.get('id','')} src={src_used} dynamic={bool(t.get('dynamic'))} fetched_items={len(rows_extracted)}")
+        if use_fetch and url and not rows_extracted and any(sel.values()):
+            print(f"WARN examples id={t.get('id','')}: selectors provided but no items extracted")
+        merge(name_val or "", theme_val or "", link_val or "", url, today, lab=lab_val or "", tag=tag_val or "")
         return list(merged.values())
 
     # Default path (table/cards/list auto)

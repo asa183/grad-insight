@@ -28,19 +28,27 @@ rows = ws.get_all_records()
 
 items = []
 for r in rows:
-    if not is_enabled(r.get("有効", "TRUE")):
-        continue
-    url = r.get("研究科URL", "") or r.get("出典URL", "")
-    if not url:
+    if not is_enabled(r.get("有効", "")):
         continue
 
-    univ = r.get("大学名", "").strip()
-    grad = r.get("研究科", "").strip()
+    univ = (r.get("大学名", "") or "").strip()
+    grad = (r.get("研究科", "") or "").strip()
+    url = (r.get("研究科URL", "") or r.get("出典URL", "") or "").strip()
+    if not (univ or grad or url):
+        continue
+
     tid = slugify_name_grad(univ, grad)
+
+    fixed = {
+        "lab": (r.get("研究室名称（JP）", "") or "").strip(),
+        "name": (r.get("教授名（JP）", "") or "").strip(),
+        "theme": (r.get("研究テーマ（JP）", "") or "").strip(),
+        "link": (r.get("リンク（JP）", "") or "").strip(),
+        "tag": (r.get("タグ（JP）", "") or "").strip(),
+    }
 
     page_type = (r.get("ページ種別", "") or "").strip().lower() or None
     selectors = {}
-    # list 前提のCSS
     if r.get("抽出単位（list用）"):
         selectors["item_selector"] = r.get("抽出単位（list用）").strip()
     if r.get("研究室名称（JP）の場所（CSS）"):
@@ -61,6 +69,7 @@ for r in rows:
         "graduate_school": grad,
         "major": "",
         "enabled": True,
+        "fixed": fixed,
     }
     if page_type:
         item["page_type"] = page_type
