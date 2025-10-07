@@ -1,0 +1,8 @@
+requests
+beautifulsoup4
+lxml
+playwright
+pillow
+pytesseract
+gspread
+google-auth
