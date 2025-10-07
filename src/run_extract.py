@@ -118,8 +118,8 @@ def clean_person_name(s: str) -> str:
     # Latin-like
     if _LATIN_NAME_RE.match(cand):
         return cand
-    # Heuristic: 2-4 words, letters/hyphen/apostrophe only
-    ws = cand.split()
+    # Heuristic: 2-4 words, letters/hyphen/apostrophe only (allow middle dot)
+    ws = cand.replace("・", " ").split()
     if 1 <= len(ws) <= 4 and all(re.match(r"^[A-Za-zÀ-ÖØ-öø-ÿ'\-]+$", w) for w in ws):
         return cand
     return ""
@@ -143,6 +143,33 @@ def looks_individual_link(link: str, page_url: str) -> bool:
     except Exception:
         pass
     return any(h in u for h in _INDIVIDUAL_URL_HINTS)
+
+_TITLE_WORDS = [
+    "教授","准教授","助教","講師","教授（","特任教授","客員教授",
+    "Professor","Associate Professor","Assistant Professor","Lecturer"
+]
+
+def find_name_by_title(text: str) -> str:
+    t = (text or "").strip()
+    if not t:
+        return ""
+    # Normalize spaces
+    t = re.sub(r"\s+", " ", t)
+    # Patterns: Name + Title, Title + Name
+    name_charset = r"[A-Za-zÀ-ÖØ-öø-ÿ'\-\u4E00-\u9FFF\u3040-\u30FF・]{1,30}"
+    title_join = "|".join(re.escape(w) for w in _TITLE_WORDS)
+    patterns = [
+        rf"({name_charset})[ 　]*?(?:{title_join})",
+        rf"(?:{title_join})[ 　]*?({name_charset})",
+    ]
+    for pat in patterns:
+        m = re.search(pat, t, flags=re.IGNORECASE)
+        if m:
+            cand = m.group(1).strip()
+            cand = clean_person_name(cand)
+            if cand:
+                return cand
+    return ""
 
 
 def run_target(t: dict) -> list[dict]:
@@ -350,6 +377,12 @@ def run_target(t: dict) -> list[dict]:
                     # If name is still empty, try anchor text as a fallback for name
                     if not name_css and link_anchor_text:
                         name_css = link_anchor_text
+                    # Title-based extraction (e.g., "教授", "Associate Professor")
+                    if not name_css:
+                        frag_text = frag.get_text(" ", strip=True)
+                        nb = find_name_by_title(frag_text)
+                        if nb:
+                            name_css = nb
                     css_values["name"] = name_css
                     css_values["theme"] = theme_css
                     css_values["link"] = link_css
