@@ -250,6 +250,12 @@ def run_target(t: dict) -> list[dict]:
                             parts = txt.split()
                             name_css = " ".join(parts[:2]) if parts else ""
                     if not link_css:
+                        # Prefer individual-like links before generic anchors
+                        for lsel in ("a[href*='/faculty-member/']", "a[href*='/r/lab/']", "a[href*='/faculty']", "a[href*='/teacher']", "a[href*='/member']"):
+                            lv = safe_select_href_soup(frag, lsel, url)
+                            if lv:
+                                link_css = lv; break
+                    if not link_css:
                         link_css = safe_select_href_soup(frag, None, url) or ""
                     if not theme_css:
                         for s2 in (".desc", ".description", ".research", ".field", ".keyword", ".content", ".text", "p", "li"):
@@ -262,30 +268,50 @@ def run_target(t: dict) -> list[dict]:
                 except Exception:
                     pass
 
-            # precedence fixed > OCR > CSS > base > empty
-            name_val = f.get("name") or (ocr_values["name"] or css_values["name"]) or name_base
+            # precedence: bulk -> OCR/CSS/base -> fixed (補完のみ) / single -> fixed を優先
+            if single_mode:
+                name_val = f.get("name") or (ocr_values["name"] or css_values["name"]) or name_base
+                theme_val = f.get("theme") or (ocr_values["theme"] or css_values["theme"]) or theme_base
+                link_val = f.get("link") or (ocr_values["link"] or css_values["link"]) or link_base
+                lab_val = f.get("lab") or lab_base
+                tag_val = f.get("tag") or tag_base
+            else:
+                name_val = (ocr_values["name"] or css_values["name"]) or name_base or f.get("name") or ""
+                theme_val = (ocr_values["theme"] or css_values["theme"]) or theme_base or f.get("theme") or ""
+                link_val = (ocr_values["link"] or css_values["link"]) or link_base or f.get("link") or ""
+                lab_val = lab_base or f.get("lab") or ""
+                tag_val = tag_base or f.get("tag") or ""
             if not f.get("name") and name_val and os.environ.get("EXAMPLES_NORMALIZE_NAME", "0") in ("1","true","TRUE"):
                 name_val = normalize_name(name_val) or name_val
-            theme_val = f.get("theme") or (ocr_values["theme"] or css_values["theme"]) or theme_base
             if not f.get("theme") and theme_val:
                 try:
                     from .normalize import normalize_themes
                     theme_val = normalize_themes(theme_val, r"[、，,/／・\n]+", None, 12) or theme_val
                 except Exception:
                     pass
-            link_val = f.get("link") or (ocr_values["link"] or css_values["link"]) or link_base
             if link_val:
                 try:
                     link_val = urljoin(url, link_val)
                 except Exception:
                     pass
-            lab_val = f.get("lab") or lab_base
-            tag_val = f.get("tag") or tag_base
+            # lab/tag は補完優先（既存維持）
+            if single_mode:
+                pass
 
             today = datetime.date.today().isoformat()
             run_id = os.environ.get("GITHUB_RUN_ID") or os.environ.get("RUN_ID") or today.replace("-", "")
             # Compute stable row key (avoid collapsing into 1 row)
-            row_key = _compute_row_key(name_val or "", link_val or "", lab_val or "", br.get("_html", ""), br.get("_seq"))
+            # Use link in key only if it looks like an individual page, otherwise fall back to name/frag
+            link_for_key = link_val or ""
+            try:
+                from urllib.parse import urlparse
+                pu = urlparse(url)
+                root = f"{pu.scheme}://{pu.netloc}/"
+                if (not any(x in (link_for_key or "") for x in ("/faculty-member/", "/r/lab/"))) or (link_for_key in (url, root)):
+                    link_for_key = ""
+            except Exception:
+                pass
+            row_key = _compute_row_key(name_val or "", link_for_key or "", lab_val or "", br.get("_html", ""), br.get("_seq"))
             # Require at least a name or link in bulk mode to retain the row
             if not single_mode:
                 if not (name_val or link_val):

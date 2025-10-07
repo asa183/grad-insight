@@ -56,7 +56,7 @@ jobs:
           python -m pip install --quiet pillow pytesseract || true
       - name: Extract from examples (selectors-driven)
         env:
-          EX_ENUM_MAX_ITEMS: "60"
+          EX_ENUM_MAX_ITEMS: "120"
           EX_ENUM_MAX_SHOTS: "6"
           EX_ENUM_TIMEOUT_MS: "120000"
           EX_NAV_TIMEOUT_MS: "15000"
