@@ -11,6 +11,7 @@ from .normalize import normalize_name
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 import hashlib
+import time
 
 COLUMNS = [
     "大学名","研究科","専攻名","氏名（漢字）",
@@ -130,6 +131,10 @@ def run_target(t: dict) -> list[dict]:
         rows_fb: list[dict] = []
         html = ""
         dom_items = []
+        # metrics & diagnostics
+        drops = {"no_name_link": 0, "dup_key": 0}
+        merge_count = {"link": 0, "name+lab": 0, "name": 0, "frag": 0, "anon": 0}
+        ts_fetch_start = time.time()
         # Always fetch/scan page info when URL is provided, even if fixed values are complete.
         # Purpose: CSS empty should still trigger fallback extraction to gather page info.
         if url:
@@ -173,22 +178,23 @@ def run_target(t: dict) -> list[dict]:
                 print(f"INFO examples id={t.get('id','')}: dom_items={len(dom_items)} selectors_tried={len(item_selectors)} max_items={max_items_env} max_shots={max_shots_env}")
             except Exception:
                 dom_items = []
-            if not dom_items:
-                if sel.get('item_selector') or any(sel.get(x) for x in ('lab_selector','name_selector','theme_selector','link_selector','tag_selector')):
-                    rows_css = extract_list_page(html, url, sel)
-                try:
-                    rows_fb_list = [{"lab":"","name": r.get("name",""), "theme": r.get("theme",""), "link": r.get("link",""), "tag":""} for r in parse_list(html, {"selectors": {}})]
-                except Exception:
-                    rows_fb_list = []
-                try:
-                    rows_fb_cards = [{"lab":"","name": r.get("name",""), "theme": r.get("theme",""), "link": r.get("link",""), "tag":""} for r in parse_cards(html, {"selectors": {}})]
-                except Exception:
-                    rows_fb_cards = []
-                try:
-                    rows_fb_tr = [{"lab":"","name": r.get("name",""), "theme": r.get("theme",""), "link": r.get("link",""), "tag":""} for r in parse_list(html, {"selectors": {"item_selector": "tr"}})]
-                except Exception:
-                    rows_fb_tr = []
-                rows_fb = rows_fb_list + rows_fb_cards + rows_fb_tr
+        ts_fetch_end = time.time()
+        if not dom_items:
+            if sel.get('item_selector') or any(sel.get(x) for x in ('lab_selector','name_selector','theme_selector','link_selector','tag_selector')):
+                rows_css = extract_list_page(html, url, sel)
+            try:
+                rows_fb_list = [{"lab":"","name": r.get("name",""), "theme": r.get("theme",""), "link": r.get("link",""), "tag":""} for r in parse_list(html, {"selectors": {}})]
+            except Exception:
+                rows_fb_list = []
+            try:
+                rows_fb_cards = [{"lab":"","name": r.get("name",""), "theme": r.get("theme",""), "link": r.get("link",""), "tag":""} for r in parse_cards(html, {"selectors": {}})]
+            except Exception:
+                rows_fb_cards = []
+            try:
+                rows_fb_tr = [{"lab":"","name": r.get("name",""), "theme": r.get("theme",""), "link": r.get("link",""), "tag":""} for r in parse_list(html, {"selectors": {"item_selector": "tr"}})]
+            except Exception:
+                rows_fb_tr = []
+            rows_fb = rows_fb_list + rows_fb_cards + rows_fb_tr
         # build base rows
         if dom_items:
             base_rows = [{"name": "", "theme": "", "link": "", "_html": it.get("html",""), "_shot": it.get("screenshot_path",""), "_seq": it.get("seq","1")} for it in dom_items]
@@ -199,8 +205,7 @@ def run_target(t: dict) -> list[dict]:
         # Mode selection: default bulk unless explicitly set to single
         mode_env = (os.environ.get("EXAMPLES_MODE") or os.environ.get("EXTRACT_MODE") or "bulk").lower()
         single_mode = (mode_env == "single") and bool(f.get("name") or f.get("link"))
-        # Merge breakdown counters
-        merge_count = {"link": 0, "name+lab": 0, "name": 0, "frag": 0, "anon": 0}
+        # Merge breakdown counters already initialized
         for br in base_rows:
             name_base = br.get("name", "")
             theme_base = br.get("theme", "")
@@ -284,6 +289,7 @@ def run_target(t: dict) -> list[dict]:
             # Require at least a name or link in bulk mode to retain the row
             if not single_mode:
                 if not (name_val or link_val):
+                    drops["no_name_link"] += 1
                     continue
             # If single mode, filter rows by fixed name/link when available
             if single_mode:
@@ -301,6 +307,7 @@ def run_target(t: dict) -> list[dict]:
                         matched = (f.get("name") in (name_val or ""))
                 if not matched:
                     continue
+            dup_before = (row_key in merged)
             merge(name_val or "", theme_val or "", link_val or "", url, today, run_id, lab=lab_val or "", tag=tag_val or "", row_key=row_key)
             key = row_key
             # Merge breakdown
@@ -317,6 +324,8 @@ def run_target(t: dict) -> list[dict]:
             if ev_path_item and key in merged:
                 merged[key]["evidence_path"] = ev_path_item
             rows_out += 1
+            if dup_before:
+                drops["dup_key"] += 1
 
         print(
             f"INFO examples id={t.get('id','')} dom_items={len(dom_items)} src={'dom-ocr' if dom_items else ('css' if rows_css else ('fallback' if rows_fb else 'none'))} "
@@ -326,6 +335,68 @@ def run_target(t: dict) -> list[dict]:
         )
         if (need_any and url and not rows_css and any(sel.values()) and not dom_items):
             print(f"WARN examples id={t.get('id','')}: selectors provided but no items extracted")
+        # Structured log output per target
+        try:
+            os.makedirs("logs", exist_ok=True)
+            run_id_global = os.environ.get("GITHUB_RUN_ID") or os.environ.get("RUN_ID") or datetime.date.today().isoformat().replace("-", "")
+            from urllib.parse import urlparse
+            host = (urlparse(url).hostname or "")
+            # limits/env
+            limits = {
+                "EX_ENUM_MAX_ITEMS": int(os.environ.get("EX_ENUM_MAX_ITEMS", "0") or 0),
+                "EX_ENUM_MAX_SHOTS": int(os.environ.get("EX_ENUM_MAX_SHOTS", "0") or 0),
+                "EX_ENUM_TIMEOUT_MS": int(os.environ.get("EX_ENUM_TIMEOUT_MS", "0") or 0),
+                "EX_NAV_TIMEOUT_MS": int(os.environ.get("EX_NAV_TIMEOUT_MS", "0") or 0),
+                "EX_ACTION_TIMEOUT_MS": int(os.environ.get("EX_ACTION_TIMEOUT_MS", "0") or 0),
+            }
+            log_obj = {
+                "meta": {
+                    "run_id": run_id_global,
+                    "target_id": t.get("id"),
+                    "url": url,
+                    "host": host,
+                    "mode": "single" if single_mode else "bulk",
+                    "capabilities": {"playwright": has_playwright(), "ocr": has_ocr()},
+                },
+                "counts": {
+                    "dom_items": len(dom_items),
+                    "rows_out": rows_out,
+                    "unique_rows": len(merged),
+                    "fetched_items_css": len(rows_css),
+                    "fetched_items_fb": len(rows_fb),
+                    "before_rows": before_rows,
+                },
+                "merge_keys": merge_count,
+                "drops": drops,
+                "limits": limits,
+                "timings": {"fetch_total_ms": int((ts_fetch_end - ts_fetch_start) * 1000)},
+                "first_row_preview": next(iter(merged.values())) if merged else {},
+            }
+            # status/code
+            code = "OK"
+            if len(dom_items) == 0 and rows_out == 0:
+                code = "DOM_ENUM_ZERO"
+            elif rows_out == 0:
+                code = "EXTRACT_ZERO"
+            else:
+                ratio = (len(merged) / max(1, before_rows)) if before_rows else 1.0
+                if ratio < 0.8:
+                    code = "MERGE_COLLAPSE"
+            log_obj["status"] = ("ERROR" if code in ("DOM_ENUM_ZERO", "EXTRACT_ZERO") else ("WARN" if code == "MERGE_COLLAPSE" else "OK"))
+            log_obj["code"] = code
+            out_json = Path("logs") / f"{t.get('id','target')}.json"
+            out_json.write_text(json.dumps(log_obj, ensure_ascii=False, indent=2), encoding="utf-8")
+            # optional row-level CSV (sampled)
+            if (os.environ.get("DEBUG_ARTIFACTS") or "0") not in ("", "0", "false", "False"):
+                sample_n = int(os.environ.get("DEBUG_SAMPLE_N", "50") or 50)
+                rows_vals = list(merged.values())
+                sample = rows_vals[:sample_n]
+                out_csv = Path("logs") / f"{t.get('id','target')}_rows.csv"
+                with out_csv.open("w", newline="", encoding="utf-8") as rf:
+                    w = csv.DictWriter(rf, fieldnames=COLUMNS)
+                    w.writeheader(); w.writerows(sample)
+        except Exception:
+            pass
         return list(merged.values())
 
     # Default path (table/cards/list auto)

@@ -64,8 +64,17 @@ PY
           EX_ENUM_TIMEOUT_MS: "120000"
           EX_NAV_TIMEOUT_MS: "15000"
           EX_ACTION_TIMEOUT_MS: "5000"
+          DEBUG_ARTIFACTS: "1"
+          DEBUG_SAMPLE_N: "80"
         run: |
           python -u -m src.run_extract config/examples_targets.json
+      - name: Upload extraction artifacts (logs + evidence)
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-${{ github.run_id }}
+          path: |
+            logs/**
+            evidence/**
       - name: Debug CSV outputs
         run: |
           ls -1 *.csv || true
