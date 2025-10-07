@@ -3,6 +3,7 @@ from bs4 import BeautifulSoup
 from typing import Any
 import re
 from .normalize import normalize_name, normalize_themes
+from .html_utils import select_text_all
 
 def _table_with_headers(soup: BeautifulSoup, table_selector: str | None, header_keywords: list[str] | None) -> Any:
     if table_selector:
@@ -79,13 +80,11 @@ def parse_cards(html: str, meta: dict) -> list[dict]:
     for card in soup.select(card_sel or fallback_cards):
         # name
         name_text = ""
-        node = None
         for sel in fallback_name:
             if not sel:
                 continue
-            node = card.select_one(sel)
-            if node:
-                name_text = node.get_text(" ", strip=True)
+            name_text = select_text_all(card, sel)
+            if name_text:
                 break
         if not name_text:
             name_text = card.get_text(" ", strip=True)
@@ -136,13 +135,11 @@ def parse_list(html: str, meta: dict) -> list[dict]:
     for it in soup.select(item_sel):
         # name
         name_text = ""
-        node = None
         for sel in fallback_name:
             if not sel:
                 continue
-            node = it.select_one(sel)
-            if node:
-                name_text = node.get_text(" ", strip=True)
+            name_text = select_text_all(it, sel)
+            if name_text:
                 break
         if not name_text:
             name_text = it.get_text(" ", strip=True)

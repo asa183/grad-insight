@@ -15,7 +15,11 @@
     ],
     "exclude_text_keywords": [
       "ニュース", "お知らせ", "イベント", "カテゴリ", "カテゴリー", "アーカイブ", "募集"
-    ]
+    ],
+    "name_parts_selectors": {
+      "last": ".family-name, .last, .surname, [class*='family'], [class*='last'], ruby rb:first-child",
+      "first": ".given-name, .first, [class*='given'], [class*='first'], ruby rb:last-child"
+    }
   },
   "www.fbc.keio.ac.jp": {
     "personal_url_patterns": ["/graduate/([a-z]+)\\.html$", "/teacher/[a-z0-9\-_%]+$"],
@@ -31,4 +35,3 @@
     "generic_list_hints": ["/r/lab$"]
   }
 }
-

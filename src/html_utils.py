@@ -50,6 +50,20 @@ def safe_select_text_soup(root: BeautifulSoup | Any, selector: str | None) -> st
         return compress_ws(el.get(attr) or "")
     return compress_ws(el.get_text(separator=" "))
 
+def select_text_all(root: BeautifulSoup | Any, selector: str | None, sep: str = " ") -> str:
+    css, attr = split_selector_attr(selector)
+    if not css:
+        return ""
+    els = root.select(css)
+    vals: list[str] = []
+    for el in els:
+        if attr:
+            vals.append(compress_ws(el.get(attr) or ""))
+        else:
+            vals.append(compress_ws(el.get_text(" ", strip=True)))
+    vals = [v for v in vals if v]
+    return compress_ws(sep.join(vals))
+
 
 def safe_select_href_soup(root: BeautifulSoup | Any, selector: str | None, base_url: str) -> str:
     css, attr = split_selector_attr(selector)

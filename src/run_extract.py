@@ -5,7 +5,7 @@ from collections import defaultdict
 
 from .fetch import fetch_html, fetch_dynamic_html
 from .parse import parse_table, parse_cards, parse_list
-from .html_utils import safe_select_text_soup, safe_select_href_soup, is_effective_selector
+from .html_utils import safe_select_text_soup, safe_select_href_soup, is_effective_selector, select_text_all
 from .ocr_utils import enumerate_dom_items, run_ocr, extract_from_ocr_text, make_evidence_html, save_evidence, has_playwright, has_ocr
 from .normalize import normalize_name
 from bs4 import BeautifulSoup
@@ -428,11 +428,28 @@ def run_target(t: dict) -> list[dict]:
                 try:
                     from bs4 import BeautifulSoup as BS
                     frag = BS(br["_html"], "lxml")
-                    # Prefer supplied selectors first
-                    name_css = safe_select_text_soup(frag, sel.get('name_selector')) or ""
+                    # Prefer supplied selectors first (join multiple for name)
+                    name_css = select_text_all(frag, sel.get('name_selector')) or ""
                     theme_css = safe_select_text_soup(frag, sel.get('theme_selector')) or ""
                     link_css = safe_select_href_soup(frag, sel.get('link_selector'), url) or ""
                     link_anchor_text = ""
+                    # Host adapter: explicit name parts (last/first)
+                    try:
+                        host = (urlparse(url).hostname or "")
+                        ad = _adapter_for(host)
+                        parts = ad.get("name_parts_selectors") or {}
+                        last_sel = parts.get("last")
+                        first_sel = parts.get("first")
+                        if (not name_css) and (last_sel or first_sel):
+                            last_t = select_text_all(frag, last_sel) if last_sel else ""
+                            first_t = select_text_all(frag, first_sel) if first_sel else ""
+                            joined = (last_t + " " + first_t).strip()
+                            if joined:
+                                nn = normalize_name(joined)
+                                if nn:
+                                    name_css = nn
+                    except Exception:
+                        pass
                     # Generic fallbacks
                     if not name_css:
                         for s2 in (".name", ".teacher-name", ".ttl", ".title", ".heading", "[class*='name']", "strong", "h3", "h2"):
@@ -470,6 +487,11 @@ def run_target(t: dict) -> list[dict]:
                         nb = find_name_by_title(frag_text)
                         if nb:
                             name_css = nb
+                    # If still empty, try re-normalization on container text
+                    if not name_css:
+                        nn2 = normalize_name(frag.get_text(" ", strip=True))
+                        if nn2:
+                            name_css = nn2
                     css_values["name"] = name_css
                     css_values["theme"] = theme_css
                     css_values["link"] = link_css
@@ -489,12 +511,15 @@ def run_target(t: dict) -> list[dict]:
                 link_val = (ocr_values["link"] or css_values["link"]) or link_base or f.get("link") or ""
                 lab_val = lab_base or f.get("lab") or ""
                 tag_val = tag_base or f.get("tag") or ""
-            # Person name cleaning (loose, multilingual)
-            cleaned_name = clean_person_name(name_val)
-            if cleaned_name:
-                name_val = cleaned_name
+            # Prefer normalization first; if fails, fall back to loose cleaning
             if not f.get("name") and name_val:
-                name_val = normalize_name(name_val) or name_val
+                nm_try = normalize_name(name_val)
+                if nm_try:
+                    name_val = nm_try
+                else:
+                    cleaned_name = clean_person_name(name_val)
+                    if cleaned_name:
+                        name_val = cleaned_name
             if not f.get("theme") and theme_val:
                 try:
                     from .normalize import normalize_themes
