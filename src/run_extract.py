@@ -85,10 +85,8 @@ def run_target(t: dict) -> list[dict]:
     merged: dict[str, dict] = {}
 
     def merge(name: str, theme: str, url: str, source: str, today: str, run_id: str, lab: str = "", tag: str = "", row_key: str | None = None):
-        # Prefer provided row_key; else fall back to link/name combinations
-        key = (row_key or (url if url else (name or (f"{name}|{lab}" if (name or lab) else ""))))
-        if not key:
-            key = f"anon:{hashlib.sha1((name+theme+lab+url).encode('utf-8', errors='ignore')).hexdigest()[:10]}"
+        # Strictly use provided row_key for de-duplication to avoid over-merge
+        key = row_key or f"anon:{hashlib.sha1((name+theme+lab+(url or '')).encode('utf-8', errors='ignore')).hexdigest()[:10]}"
         if key not in merged:
             merged[key] = {
                 "大学名": uni, "研究科": grad, "専攻名": major,
@@ -198,7 +196,11 @@ def run_target(t: dict) -> list[dict]:
             base_rows = rows_css if rows_css else rows_fb
         rows_out = 0
         before_rows = len(base_rows)
-        single_mode = bool(f.get("name") or f.get("link"))
+        # Mode selection: default bulk unless explicitly set to single
+        mode_env = (os.environ.get("EXAMPLES_MODE") or os.environ.get("EXTRACT_MODE") or "bulk").lower()
+        single_mode = (mode_env == "single") and bool(f.get("name") or f.get("link"))
+        # Merge breakdown counters
+        merge_count = {"link": 0, "name+lab": 0, "name": 0, "frag": 0, "anon": 0}
         for br in base_rows:
             name_base = br.get("name", "")
             theme_base = br.get("theme", "")
@@ -279,6 +281,10 @@ def run_target(t: dict) -> list[dict]:
             run_id = os.environ.get("GITHUB_RUN_ID") or os.environ.get("RUN_ID") or today.replace("-", "")
             # Compute stable row key (avoid collapsing into 1 row)
             row_key = _compute_row_key(name_val or "", link_val or "", lab_val or "", br.get("_html", ""), br.get("_seq"))
+            # Require at least a name or link in bulk mode to retain the row
+            if not single_mode:
+                if not (name_val or link_val):
+                    continue
             # If single mode, filter rows by fixed name/link when available
             if single_mode:
                 matched = True
@@ -297,11 +303,27 @@ def run_target(t: dict) -> list[dict]:
                     continue
             merge(name_val or "", theme_val or "", link_val or "", url, today, run_id, lab=lab_val or "", tag=tag_val or "", row_key=row_key)
             key = row_key
+            # Merge breakdown
+            if key.startswith("link:"):
+                merge_count["link"] += 1
+            elif key.startswith("name+lab:"):
+                merge_count["name+lab"] += 1
+            elif key.startswith("name:"):
+                merge_count["name"] += 1
+            elif key.startswith("frag:"):
+                merge_count["frag"] += 1
+            else:
+                merge_count["anon"] += 1
             if ev_path_item and key in merged:
                 merged[key]["evidence_path"] = ev_path_item
             rows_out += 1
 
-        print(f"INFO examples id={t.get('id','')} dom_items={len(dom_items)} src={'dom-ocr' if dom_items else ('css' if rows_css else ('fallback' if rows_fb else 'none'))} dynamic={bool(t.get('dynamic'))} fetched_items_css={len(rows_css)} fetched_items_fb={len(rows_fb)} rows_out={rows_out} unique_rows={len(merged)} before_rows={before_rows} mode={'single' if single_mode else 'bulk'}")
+        print(
+            f"INFO examples id={t.get('id','')} dom_items={len(dom_items)} src={'dom-ocr' if dom_items else ('css' if rows_css else ('fallback' if rows_fb else 'none'))} "
+            f"dynamic={bool(t.get('dynamic'))} fetched_items_css={len(rows_css)} fetched_items_fb={len(rows_fb)} rows_out={rows_out} "
+            f"unique_rows={len(merged)} before_rows={before_rows} mode={'single' if single_mode else 'bulk'} "
+            f"merge_keys=link:{merge_count['link']},name+lab:{merge_count['name+lab']},name:{merge_count['name']},frag:{merge_count['frag']},anon:{merge_count['anon']}"
+        )
         if (need_any and url and not rows_css and any(sel.values()) and not dom_items):
             print(f"WARN examples id={t.get('id','')}: selectors provided but no items extracted")
         return list(merged.values())
