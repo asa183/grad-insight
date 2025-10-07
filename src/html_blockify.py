@@ -13,6 +13,13 @@ except Exception:
 
 REMOVALS = {"script", "style", "noscript", "svg", "canvas", "nav", "aside", "footer", "header"}
 BLOCK_TAGS = {"div", "section", "article", "li", "td"}
+ROLE_KEYWORDS = [
+    # Japanese titles
+    "教授","准教授","助教","講師","特任教授","客員教授","名誉教授","非常勤講師","招聘教授","招へい教員",
+    # English titles
+    "Professor","Associate Professor","Assistant Professor","Adjunct Professor","Visiting Professor","Professor Emeritus",
+    "Lecturer","Senior Lecturer","Instructor","Research Fellow","Researcher","Senior Researcher","Postdoctoral"
+]
 
 
 def _slugify(s: str) -> str:
@@ -105,6 +112,11 @@ def _remove_unwanted(root: Node):
                     pass
         except Exception:
             continue
+    
+
+def _has_role_text(text: str) -> bool:
+    t = text or ""
+    return any(k in t for k in ROLE_KEYWORDS)
 
 
 def blockify_html(url: str, html: str, max_blocks: int = 300, golden: Optional[Dict[str, str]] = None) -> List[Dict[str, str]]:
@@ -137,8 +149,18 @@ def blockify_html(url: str, html: str, max_blocks: int = 300, golden: Optional[D
             sig = f"{n.name}|{len(list(n.children))}|{','.join(sorted(c.name for c in n.find_all(recursive=False)))}"
             groups.setdefault(sig, []).append(n)
         # score and pick
+        def grp_has_role(ns: List[Tag]) -> bool:
+            try:
+                return any(_has_role_text(x.get_text(" ", strip=True)) for x in ns)
+            except Exception:
+                return False
+        def grp_max_text(ns: List[Tag]) -> int:
+            try:
+                return max(len(x.get_text(" ", strip=True)) for x in ns)
+            except Exception:
+                return 0
         kept: List[Tag] = []
-        for sig, nodes in sorted(groups.items(), key=lambda kv: -len(kv[1])):
+        for sig, nodes in sorted(groups.items(), key=lambda kv: (-int(grp_has_role(kv[1])), -len(kv[1]), -grp_max_text(kv[1]))):
             for nd in nodes:
                 kept.append(nd)
                 if len(kept) >= max_blocks:
@@ -195,7 +217,7 @@ def blockify_html(url: str, html: str, max_blocks: int = 300, golden: Optional[D
     except Exception:
         nodes = []
 
-    # If golden is provided, prioritize merging around golden pieces into larger containers
+    # If golden is provided, prioritize merging around golden pieces (and role keywords) into larger containers
     if golden:
         name_g = (golden.get("name") or "").strip()
         theme_g = (golden.get("theme") or "").strip()
@@ -217,17 +239,17 @@ def blockify_html(url: str, html: str, max_blocks: int = 300, golden: Optional[D
                     seeds.append(a)
         except Exception:
             pass
-        # text matches
+        # text matches (golden text or role titles)
         try:
             for cand in nodes:
-                if (name_g and contains_text(cand, name_g)) or (theme_g and contains_text(cand, theme_g)):
+                if (name_g and contains_text(cand, name_g)) or (theme_g and contains_text(cand, theme_g)) or _has_role_text(cand.text() or ""):
                     seeds.append(cand)
         except Exception:
             pass
         # ascend to best container
         picked: List[Node] = []
         seen_paths: set[str] = set()
-        def score(n: "Node") -> Tuple[int,int,int,int,int,int]:
+        def score(n: "Node") -> Tuple[int,int,int,int,int,int,int]:
             t = n.text() or ""
             s_name = 2 if (name_g and (name_g in t)) else 0
             s_theme = 1 if (theme_g and (theme_g in t)) else 0
@@ -246,6 +268,7 @@ def blockify_html(url: str, html: str, max_blocks: int = 300, golden: Optional[D
                         s_plink = 1; break
             except Exception:
                 pass
+            s_role = 1 if _has_role_text(t) else 0
             s_img = 0
             try:
                 s_img = 1 if any(True for _ in n.css("img")) else 0
@@ -253,7 +276,7 @@ def blockify_html(url: str, html: str, max_blocks: int = 300, golden: Optional[D
                 s_img = 0
             tl = len(t)
             s_len = 1 if (40 <= tl <= 5000) else 0
-            return (s_glink, s_name, s_theme, s_plink, s_img, s_len)
+            return (s_glink, s_name, s_theme, s_plink, s_role, s_img, s_len)
         for seed in seeds:
             best = seed
             best_sc = score(seed)
@@ -306,7 +329,7 @@ def blockify_html(url: str, html: str, max_blocks: int = 300, golden: Optional[D
                     "block_id": str(bid),
                     "tag": tag,
                     "depth": str(depth),
-                    "group_id": "golden",
+                    "group_id": "role" if _has_role_text(text_v) else "golden",
                     "path": path,
                     "has_img": "TRUE" if has_img else "FALSE",
                     "text": text_v[:45000],
