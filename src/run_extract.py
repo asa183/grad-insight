@@ -20,7 +20,7 @@ COLUMNS = [
     "研究室名称（JP）","タグ（JP）","evidence_path",
 ]
 
-DEFAULT_ITEM_SELECTORS = ['li', '.member', '.teacher', '.card', '.profile', 'article', '.entry', '.list-item', '.list-group-item', '.facultyList li']
+DEFAULT_ITEM_SELECTORS = ['li', '.member', '.teacher', '.card', '.profile', '.item-faculty', '.faculty-member', 'article', '.entry', '.list-item', '.list-group-item', '.facultyList li']
 
 
 def extract_by_type(html: str, page_type: str, selectors: dict):
@@ -215,6 +215,8 @@ def run_target(t: dict) -> list[dict]:
                     item_selectors = [
                         "main li:has(a[href*='/faculty-member/'])",
                         "main .facultyList li",
+                        "main .item-faculty",
+                        "main .faculty-member",
                         ".facultyList li",
                         ".member",
                         ".teacher",
@@ -226,6 +228,8 @@ def run_target(t: dict) -> list[dict]:
                         "main .profile",
                         "main article",
                         "main .entry",
+                        "main .item-faculty",
+                        "main .faculty-member",
                         ".profile",
                         ".card",
                         "article",

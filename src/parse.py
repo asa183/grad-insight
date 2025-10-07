@@ -71,7 +71,7 @@ def parse_cards(html: str, meta: dict) -> list[dict]:
     max_topics = int(rules.get("max_topics", 12))
 
     # フォールバック候補（カード系も幅広く）
-    fallback_cards = ".card, .profile, .profile-card, .facultyCard, .teacher, .member, article, .entry"
+    fallback_cards = ".card, .profile, .profile-card, .facultyCard, .teacher, .member, .item-faculty, .faculty-member, article, .entry"
     fallback_name = [name_sel] if name_sel else [".name", ".teacher-name", ".ttl", ".title", ".heading", ".[class*='name']"]
     fallback_theme = [theme_sel] if theme_sel else [".desc", ".description", ".research", ".field", ".keyword", ".content", ".text", "p", "li"]
 
