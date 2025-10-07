@@ -94,6 +94,13 @@ def parse_cards(html: str, meta: dict) -> list[dict]:
             if nm2:
                 nm = nm2
         if not nm:
+            # As a final fallback, use anchor text if available
+            a_fallback = card.select_one(link_sel) if link_sel else (card.select_one("a[href]") or None)
+            if a_fallback:
+                nm3 = normalize_name(a_fallback.get_text(" ", strip=True), cleanup)
+                if nm3:
+                    nm = nm3
+        if not nm:
             continue
         # theme
         theme_node = None
@@ -148,6 +155,12 @@ def parse_list(html: str, meta: dict) -> list[dict]:
             nm2 = normalize_name(it.get_text(" ", strip=True), cleanup)
             if nm2:
                 nm = nm2
+        if not nm:
+            a_fallback = it.select_one(link_sel) if link_sel else (it.select_one("a[href]") or None)
+            if a_fallback:
+                nm3 = normalize_name(a_fallback.get_text(" ", strip=True), cleanup)
+                if nm3:
+                    nm = nm3
         if not nm:
             continue
         # theme
