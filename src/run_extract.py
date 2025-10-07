@@ -251,28 +251,28 @@ def run_target(t: dict) -> list[dict]:
             except Exception:
                 dom_items = []
         ts_fetch_end = time.time()
-            if not dom_items:
-                pt = (t.get("page_type") or "").lower()
-                if pt == "cards" or sel.get('card_selector'):
-                    try:
-                        rows_css_cards = [{"lab":"","name": r.get("name",""), "theme": r.get("theme",""), "link": urljoin(url, r.get("link","")) if r.get("link") else "", "tag":""} for r in parse_cards(html, {"selectors": sel})]
-                    except Exception:
-                        rows_css_cards = []
-                    rows_css = rows_css_cards
-                elif sel.get('item_selector') or any(sel.get(x) for x in ('lab_selector','name_selector','theme_selector','link_selector','tag_selector')):
-                    rows_css = extract_list_page(html, url, sel)
+        if not dom_items:
+            pt = (t.get("page_type") or "").lower()
+            if pt == "cards" or sel.get('card_selector'):
                 try:
-                    rows_fb_list = [{"lab":"","name": r.get("name",""), "theme": r.get("theme",""), "link": urljoin(url, r.get("link","")) if r.get("link") else "", "tag":""} for r in parse_list(html, {"selectors": {}})]
+                    rows_css_cards = [{"lab":"","name": r.get("name",""), "theme": r.get("theme",""), "link": urljoin(url, r.get("link","")) if r.get("link") else "", "tag":""} for r in parse_cards(html, {"selectors": sel})]
                 except Exception:
-                    rows_fb_list = []
-                try:
-                    rows_fb_cards = [{"lab":"","name": r.get("name",""), "theme": r.get("theme",""), "link": urljoin(url, r.get("link","")) if r.get("link") else "", "tag":""} for r in parse_cards(html, {"selectors": {}})]
-                except Exception:
-                    rows_fb_cards = []
-                try:
-                    rows_fb_tr = [{"lab":"","name": r.get("name",""), "theme": r.get("theme",""), "link": urljoin(url, r.get("link","")) if r.get("link") else "", "tag":""} for r in parse_list(html, {"selectors": {"item_selector": "tr"}})]
-                except Exception:
-                    rows_fb_tr = []
+                    rows_css_cards = []
+                rows_css = rows_css_cards
+            elif sel.get('item_selector') or any(sel.get(x) for x in ('lab_selector','name_selector','theme_selector','link_selector','tag_selector')):
+                rows_css = extract_list_page(html, url, sel)
+            try:
+                rows_fb_list = [{"lab":"","name": r.get("name",""), "theme": r.get("theme",""), "link": urljoin(url, r.get("link","")) if r.get("link") else "", "tag":""} for r in parse_list(html, {"selectors": {}})]
+            except Exception:
+                rows_fb_list = []
+            try:
+                rows_fb_cards = [{"lab":"","name": r.get("name",""), "theme": r.get("theme",""), "link": urljoin(url, r.get("link","")) if r.get("link") else "", "tag":""} for r in parse_cards(html, {"selectors": {}})]
+            except Exception:
+                rows_fb_cards = []
+            try:
+                rows_fb_tr = [{"lab":"","name": r.get("name",""), "theme": r.get("theme",""), "link": urljoin(url, r.get("link","")) if r.get("link") else "", "tag":""} for r in parse_list(html, {"selectors": {"item_selector": "tr"}})]
+            except Exception:
+                rows_fb_tr = []
             rows_fb = rows_fb_list + rows_fb_cards + rows_fb_tr
         # build base rows
         if dom_items:
