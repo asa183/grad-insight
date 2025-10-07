@@ -6,9 +6,10 @@ from collections import defaultdict
 from .fetch import fetch_html, fetch_dynamic_html
 from .parse import parse_table, parse_cards, parse_list
 from .html_utils import safe_select_text_soup, safe_select_href_soup, is_effective_selector
-from .ocr_utils import enumerate_dom_items, run_ocr, extract_from_ocr_text, make_evidence_html, save_evidence
+from .ocr_utils import enumerate_dom_items, run_ocr, extract_from_ocr_text, make_evidence_html, save_evidence, has_playwright, has_ocr
 from .normalize import normalize_name
 from bs4 import BeautifulSoup
+from urllib.parse import urljoin
 
 COLUMNS = [
     "大学名","研究科","専攻名","氏名（漢字）",
@@ -199,6 +200,11 @@ def run_target(t: dict) -> list[dict]:
                 except Exception:
                     pass
             link_val = f.get("link") or (ocr_values["link"] or css_values["link"]) or link_base
+            if link_val:
+                try:
+                    link_val = urljoin(url, link_val)
+                except Exception:
+                    pass
             lab_val = f.get("lab") or lab_base
             tag_val = f.get("tag") or tag_base
 
@@ -243,6 +249,8 @@ def main():
     cfg_path = sys.argv[1] if len(sys.argv) > 1 else "config/targets_flat.json"
     target_id = sys.argv[2] if len(sys.argv) > 2 else os.environ.get("TARGET_ID")
     items = json.loads(Path(cfg_path).read_text(encoding="utf-8"))
+    # Capability flags for diagnostics
+    print(f"INFO capabilities: PLAYWRIGHT_AVAILABLE={has_playwright()} OCR_AVAILABLE={has_ocr()}")
     targets = [x for x in items if x.get("enabled", True)]
     if target_id:
         targets = [x for x in targets if x.get("id") == target_id]
@@ -250,13 +258,18 @@ def main():
             print(f"target not found: {target_id}", file=sys.stderr)
             sys.exit(2)
 
+    total_rows = 0
     for t in targets:
         rows = run_target(t)
+        total_rows += len(rows)
         outpath = Path(f"{t['id']}.csv")
         with outpath.open("w", newline="", encoding="utf-8") as f:
             w = csv.DictWriter(f, fieldnames=COLUMNS)
             w.writeheader(); w.writerows(rows)
         print(f"wrote {len(rows)} rows -> {outpath}")
+    if total_rows == 0:
+        print("ERROR: no rows extracted across all targets", file=sys.stderr)
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()

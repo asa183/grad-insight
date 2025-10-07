@@ -9,6 +9,12 @@ def _has_module(name: str) -> bool:
     except Exception:
         return False
 
+def has_playwright() -> bool:
+    return _has_module("playwright")
+
+def has_ocr() -> bool:
+    return _has_module("pytesseract") and _has_module("PIL")
+
 
 def try_render_screenshot(url: str, dynamic: bool = False, wait_ms: int = 1500) -> Optional[str]:
     if not _has_module("playwright"):
