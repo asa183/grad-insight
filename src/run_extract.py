@@ -10,6 +10,7 @@ from .ocr_utils import enumerate_dom_items, run_ocr, extract_from_ocr_text, make
 from .normalize import normalize_name
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
+import hashlib
 
 COLUMNS = [
     "大学名","研究科","専攻名","氏名（漢字）",
@@ -63,12 +64,31 @@ def _score_row(r: dict) -> int:
     return int(bool(r.get('name'))) + int(bool(r.get('theme'))) + int(bool(r.get('link'))) + int(bool(r.get('lab'))) + int(bool(r.get('tag')))
 
 
+def _compute_row_key(name: str, link: str, lab: str, html_frag: str, seq: str | None) -> str:
+    n = (name or "").strip()
+    u = (link or "").strip()
+    l = (lab or "").strip()
+    if u:
+        return f"link:{u}"
+    if n and l:
+        return f"name+lab:{n}|{l}"
+    if n:
+        return f"name:{n}"
+    if html_frag:
+        h = hashlib.sha1(html_frag.encode("utf-8", errors="ignore")).hexdigest()[:12]
+        return f"frag:{h}"
+    return f"anon:{seq or ''}"
+
+
 def run_target(t: dict) -> list[dict]:
     uni, grad, major = t.get("university", ""), t.get("graduate_school", ""), t.get("major", "")
     merged: dict[str, dict] = {}
 
-    def merge(name: str, theme: str, url: str, source: str, today: str, run_id: str, lab: str = "", tag: str = ""):
-        key = name or f"{lab}:{url}"
+    def merge(name: str, theme: str, url: str, source: str, today: str, run_id: str, lab: str = "", tag: str = "", row_key: str | None = None):
+        # Prefer provided row_key; else fall back to link/name combinations
+        key = (row_key or (url if url else (name or (f"{name}|{lab}" if (name or lab) else ""))))
+        if not key:
+            key = f"anon:{hashlib.sha1((name+theme+lab+url).encode('utf-8', errors='ignore')).hexdigest()[:10]}"
         if key not in merged:
             merged[key] = {
                 "大学名": uni, "研究科": grad, "専攻名": major,
@@ -125,9 +145,22 @@ def run_target(t: dict) -> list[dict]:
                 from urllib.parse import urlparse
                 host = (urlparse(url).hostname or "")
                 if host == "www2.fish.hokudai.ac.jp":
-                    item_selectors = [".facultyList li", ".member", ".teacher", ".card"] + item_selectors
+                    item_selectors = [
+                        "li:has(a[href*='/faculty-member/'])",
+                        ".facultyList li",
+                        ".member",
+                        ".teacher",
+                        ".card",
+                    ] + item_selectors
                 if host == "www.agr.hokudai.ac.jp":
-                    item_selectors = [".profile", ".card", "article", ".entry", "li"] + item_selectors
+                    item_selectors = [
+                        "li:has(a[href*='/r/lab/'])",
+                        ".profile",
+                        ".card",
+                        "article",
+                        ".entry",
+                        "li",
+                    ] + item_selectors
                 # limits from env
                 import os as _os
                 max_items_env = int(_os.environ.get("EX_ENUM_MAX_ITEMS", "80") or 80)
@@ -164,6 +197,8 @@ def run_target(t: dict) -> list[dict]:
         else:
             base_rows = rows_css if rows_css else rows_fb
         rows_out = 0
+        before_rows = len(base_rows)
+        single_mode = bool(f.get("name") or f.get("link"))
         for br in base_rows:
             name_base = br.get("name", "")
             theme_base = br.get("theme", "")
@@ -188,13 +223,35 @@ def run_target(t: dict) -> list[dict]:
                         ev_path_item = save_evidence(uni, grad, run_id_local, int(br.get("_seq","1")), orig, hi, text, "", url)
                     except Exception:
                         ev_path_item = ""
-            if br.get("_html") and (sel.get('name_selector') or sel.get('theme_selector') or sel.get('link_selector')):
+            # Extract from fragment even without selectors (generic fallback allowed)
+            if br.get("_html"):
                 try:
                     from bs4 import BeautifulSoup as BS
                     frag = BS(br["_html"], "lxml")
-                    css_values["name"] = safe_select_text_soup(frag, sel.get('name_selector')) or ""
-                    css_values["theme"] = safe_select_text_soup(frag, sel.get('theme_selector')) or ""
-                    css_values["link"] = safe_select_href_soup(frag, sel.get('link_selector'), url) or ""
+                    # Prefer supplied selectors first
+                    name_css = safe_select_text_soup(frag, sel.get('name_selector')) or ""
+                    theme_css = safe_select_text_soup(frag, sel.get('theme_selector')) or ""
+                    link_css = safe_select_href_soup(frag, sel.get('link_selector'), url) or ""
+                    # Generic fallbacks
+                    if not name_css:
+                        for s2 in (".name", ".teacher-name", ".ttl", ".title", ".heading", "[class*='name']", "strong", "h3", "h2"):
+                            v = safe_select_text_soup(frag, s2)
+                            if v:
+                                name_css = v; break
+                        if not name_css:
+                            txt = frag.get_text(" ", strip=True) or ""
+                            parts = txt.split()
+                            name_css = " ".join(parts[:2]) if parts else ""
+                    if not link_css:
+                        link_css = safe_select_href_soup(frag, None, url) or ""
+                    if not theme_css:
+                        for s2 in (".desc", ".description", ".research", ".field", ".keyword", ".content", ".text", "p", "li"):
+                            v = safe_select_text_soup(frag, s2)
+                            if v:
+                                theme_css = v; break
+                    css_values["name"] = name_css
+                    css_values["theme"] = theme_css
+                    css_values["link"] = link_css
                 except Exception:
                     pass
 
@@ -220,13 +277,31 @@ def run_target(t: dict) -> list[dict]:
 
             today = datetime.date.today().isoformat()
             run_id = os.environ.get("GITHUB_RUN_ID") or os.environ.get("RUN_ID") or today.replace("-", "")
-            merge(name_val or "", theme_val or "", link_val or "", url, today, run_id, lab=lab_val or "", tag=tag_val or "")
-            key = (name_val or "") or f"{lab_val or ''}:{url}"
+            # Compute stable row key (avoid collapsing into 1 row)
+            row_key = _compute_row_key(name_val or "", link_val or "", lab_val or "", br.get("_html", ""), br.get("_seq"))
+            # If single mode, filter rows by fixed name/link when available
+            if single_mode:
+                matched = True
+                if f.get("link"):
+                    fx_link = f.get("link") or ""
+                    matched = bool(link_val) and (link_val == fx_link or link_val.startswith(fx_link) or fx_link.startswith(link_val))
+                if matched and f.get("name"):
+                    try:
+                        fx_name = f.get("name") or ""
+                        norm_fx = normalize_name(fx_name) or fx_name
+                        norm_cur = normalize_name(name_val or "") or (name_val or "")
+                        matched = norm_fx and norm_cur and (norm_fx == norm_cur or norm_fx in norm_cur or norm_cur in norm_fx)
+                    except Exception:
+                        matched = (f.get("name") in (name_val or ""))
+                if not matched:
+                    continue
+            merge(name_val or "", theme_val or "", link_val or "", url, today, run_id, lab=lab_val or "", tag=tag_val or "", row_key=row_key)
+            key = row_key
             if ev_path_item and key in merged:
                 merged[key]["evidence_path"] = ev_path_item
             rows_out += 1
 
-        print(f"INFO examples id={t.get('id','')} dom_items={len(dom_items)} src={'dom-ocr' if dom_items else ('css' if rows_css else ('fallback' if rows_fb else 'none'))} dynamic={bool(t.get('dynamic'))} fetched_items_css={len(rows_css)} fetched_items_fb={len(rows_fb)} rows_out={rows_out}")
+        print(f"INFO examples id={t.get('id','')} dom_items={len(dom_items)} src={'dom-ocr' if dom_items else ('css' if rows_css else ('fallback' if rows_fb else 'none'))} dynamic={bool(t.get('dynamic'))} fetched_items_css={len(rows_css)} fetched_items_fb={len(rows_fb)} rows_out={rows_out} unique_rows={len(merged)} before_rows={before_rows} mode={'single' if single_mode else 'bulk'}")
         if (need_any and url and not rows_css and any(sel.values()) and not dom_items):
             print(f"WARN examples id={t.get('id','')}: selectors provided but no items extracted")
         return list(merged.values())
@@ -250,7 +325,17 @@ def run_target(t: dict) -> list[dict]:
         for r in rows:
             name_v = r.get("name", "")
             name_v = normalize_name(name_v) or name_v
-            merge(name_v, r.get("theme", ""), r.get("link", ""), url, today, run_id)
+            link_v = r.get("link", "")
+            if link_v:
+                try:
+                    link_v = urljoin(url, link_v)
+                except Exception:
+                    pass
+            # Skip rows with no name and no link
+            if not (name_v or link_v):
+                continue
+            row_key = _compute_row_key(name_v or "", link_v or "", "", "", None)
+            merge(name_v, r.get("theme", ""), link_v, url, today, run_id, row_key=row_key)
 
     return list(merged.values())
 
