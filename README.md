@@ -59,6 +59,22 @@ ls -1 *.csv logs/ evidence/
 python3 -u -m src.run_extract config/targets.json
 ```
 
+## Examples → HTMLブロック出力（新機能）
+- 概要: Examplesシートから各URLのHTMLを取得し、本文寄りDOMから「ブロック」を抽出。同一ブックの新タブに書き出します（OCRは未使用）。
+- 使い方:
+```
+export SHEET_ID=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+export GOOGLE_CREDENTIALS_JSON='{"type":"service_account",...}'
+python scripts/sheet_blocks_from_examples.py --sheet-id $SHEET_ID --examples-name "examples" --max-blocks 300
+```
+- 出力タブ: 「大学名-研究科-blocks」。既存と衝突した場合は末尾に -2, -3 を付与。
+- 出力列（ヘッダー固定）: `run_id, university, graduate_school, source_url, page_id, block_id, tag, depth, group_id, path, has_img, text, links_json`
+- ブロック化要点:
+  - 除去: `script/style/noscript/svg/canvas/nav/aside/footer/header`
+  - 対象タグ: `div,section,article,li,td`（最大300件）
+  - 相対URLは絶対化（a/@href, img/@src）
+  - 文字ありノードを優先し、同型反復は代表から詰めて飽和防止
+
 ## 観測性（KPI/ログ）
 - `logs/<target>.json`
   - `meta`: run_id, host, mode, capabilities(playwright/ocr)
@@ -87,4 +103,3 @@ python3 -u -m src.run_extract config/targets.json
 
 ---
 非互換な仕様変更はありません。既存の Examples/CI 運用を維持しつつ、未指定ページでも `auto` 判定とアダプタ知見で回収率と安定性を高めます。
-
