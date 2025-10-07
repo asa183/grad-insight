@@ -1,6 +1,6 @@
 from __future__ import annotations
 import os, re, datetime
-from typing import Optional, Tuple, Dict
+from typing import Optional, Tuple, Dict, List
 
 def _has_module(name: str) -> bool:
     try:
@@ -30,6 +30,60 @@ def try_render_screenshot(url: str, dynamic: bool = False, wait_ms: int = 1500) 
             return out
     except Exception:
         return None
+
+def enumerate_dom_items(url: str, item_selectors: List[str], dynamic: bool = False, max_items: int = 80) -> List[Dict[str, str]]:
+    """Enumerate DOM items by selectors, capturing outerHTML and per-item screenshots.
+
+    Returns a list of dicts: {html, screenshot_path, seq}.
+    If Playwright (Python) is unavailable, returns an empty list gracefully.
+    """
+    if not _has_module("playwright"):
+        return []
+    items: List[Dict[str, str]] = []
+    try:
+        from playwright.sync_api import sync_playwright  # type: ignore
+        from time import sleep
+        with sync_playwright() as p:
+            browser = p.chromium.launch()
+            page = browser.new_page(viewport={"width": 1280, "height": 2000})
+            page.goto(url, wait_until="networkidle")
+            if dynamic:
+                sleep(1.0)
+            out_dir = os.path.join("evidence", "_screenshots")
+            os.makedirs(out_dir, exist_ok=True)
+
+            seen_html = set()
+            seq = 1
+            for sel in item_selectors or []:
+                try:
+                    handles = page.query_selector_all(sel)
+                except Exception:
+                    handles = []
+                for h in handles:
+                    if len(items) >= max_items:
+                        break
+                    try:
+                        html = h.evaluate("el => el.outerHTML") or ""
+                    except Exception:
+                        html = ""
+                    if not html or html in seen_html:
+                        continue
+                    seen_html.add(html)
+                    # Save per-item screenshot (best-effort)
+                    shot_name = f"item_{int(datetime.datetime.now().timestamp())}_{seq}.png"
+                    shot_path = os.path.join(out_dir, shot_name)
+                    try:
+                        h.screenshot(path=shot_path)
+                    except Exception:
+                        shot_path = ""
+                    items.append({"html": html, "screenshot_path": shot_path, "seq": str(seq)})
+                    seq += 1
+                if len(items) >= max_items:
+                    break
+            browser.close()
+    except Exception:
+        return []
+    return items
 
 
 def run_ocr(image_path: str) -> Tuple[str, bool]:
@@ -104,4 +158,3 @@ def save_evidence(univ: str, grad: str, run_id: str, seq: int, original_html: st
     with open(path, "w", encoding="utf-8") as f:
         f.write("".join(body))
     return path
-
