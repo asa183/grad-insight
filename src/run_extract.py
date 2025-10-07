@@ -149,7 +149,8 @@ def run_target(t: dict) -> list[dict]:
                 host = (urlparse(url).hostname or "")
                 if host == "www2.fish.hokudai.ac.jp":
                     item_selectors = [
-                        "li:has(a[href*='/faculty-member/'])",
+                        "main li:has(a[href*='/faculty-member/'])",
+                        "main .facultyList li",
                         ".facultyList li",
                         ".member",
                         ".teacher",
@@ -157,7 +158,10 @@ def run_target(t: dict) -> list[dict]:
                     ] + item_selectors
                 if host == "www.agr.hokudai.ac.jp":
                     item_selectors = [
-                        "li:has(a[href*='/r/lab/'])",
+                        "main li:has(a[href*='/r/lab/'])",
+                        "main .profile",
+                        "main article",
+                        "main .entry",
                         ".profile",
                         ".card",
                         "article",
@@ -239,6 +243,7 @@ def run_target(t: dict) -> list[dict]:
                     name_css = safe_select_text_soup(frag, sel.get('name_selector')) or ""
                     theme_css = safe_select_text_soup(frag, sel.get('theme_selector')) or ""
                     link_css = safe_select_href_soup(frag, sel.get('link_selector'), url) or ""
+                    link_anchor_text = ""
                     # Generic fallbacks
                     if not name_css:
                         for s2 in (".name", ".teacher-name", ".ttl", ".title", ".heading", "[class*='name']", "strong", "h3", "h2"):
@@ -250,11 +255,16 @@ def run_target(t: dict) -> list[dict]:
                             parts = txt.split()
                             name_css = " ".join(parts[:2]) if parts else ""
                     if not link_css:
-                        # Prefer individual-like links before generic anchors
+                        # Prefer individual-like links before generic anchors; keep anchor text if available
                         for lsel in ("a[href*='/faculty-member/']", "a[href*='/r/lab/']", "a[href*='/faculty']", "a[href*='/teacher']", "a[href*='/member']"):
-                            lv = safe_select_href_soup(frag, lsel, url)
-                            if lv:
-                                link_css = lv; break
+                            a = frag.select_one(lsel)
+                            if a and a.has_attr("href"):
+                                try:
+                                    link_css = urljoin(url, a.get("href") or "")
+                                except Exception:
+                                    link_css = a.get("href") or ""
+                                link_anchor_text = a.get_text(" ", strip=True) or link_anchor_text
+                                break
                     if not link_css:
                         link_css = safe_select_href_soup(frag, None, url) or ""
                     if not theme_css:
@@ -262,6 +272,9 @@ def run_target(t: dict) -> list[dict]:
                             v = safe_select_text_soup(frag, s2)
                             if v:
                                 theme_css = v; break
+                    # If name is still empty, try anchor text as a fallback for name
+                    if not name_css and link_anchor_text:
+                        name_css = link_anchor_text
                     css_values["name"] = name_css
                     css_values["theme"] = theme_css
                     css_values["link"] = link_css
