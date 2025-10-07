@@ -493,7 +493,7 @@ def run_target(t: dict) -> list[dict]:
             cleaned_name = clean_person_name(name_val)
             if cleaned_name:
                 name_val = cleaned_name
-            if not f.get("name") and name_val and os.environ.get("EXAMPLES_NORMALIZE_NAME", "0") in ("1","true","TRUE"):
+            if not f.get("name") and name_val:
                 name_val = normalize_name(name_val) or name_val
             if not f.get("theme") and theme_val:
                 try:

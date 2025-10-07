@@ -1,6 +1,7 @@
 from __future__ import annotations
 import os, re, datetime
 from typing import Optional, Tuple, Dict, List
+from .normalize import normalize_name
 import time as _time
 
 def _has_module(name: str) -> bool:
@@ -152,7 +153,7 @@ def run_ocr(image_path: str) -> Tuple[str, bool]:
         return "", False
 
 
-NAME_RE = re.compile(r"[一-龥々〆ヵヶ]{1,4}[\u3000 ]+[一-龥々〆ヵヶ]{1,6}")
+NAME_RE = re.compile(r"[一-龥々〆ヵヶ]{1,4}[\u3000 ・ ]+[一-龥々〆ヵヶ]{1,6}")
 
 
 def extract_from_ocr_text(text: str) -> Dict[str, str]:
@@ -161,7 +162,14 @@ def extract_from_ocr_text(text: str) -> Dict[str, str]:
         return out
     m = NAME_RE.search(text)
     if m:
-        out["name"] = m.group(0).strip()
+        n = m.group(0).replace("\u3000", " ").replace("・", " ").strip()
+        out["name"] = normalize_name(n) or n
+    if not out["name"]:
+        for ln in text.splitlines():
+            n2 = normalize_name(ln)
+            if n2:
+                out["name"] = n2
+                break
     for ln in text.splitlines():
         l = ln.strip()
         if not l:
