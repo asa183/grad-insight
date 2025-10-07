@@ -15,15 +15,28 @@ jobs:
         with:
           python-version: "3.11"
       - name: Build examples targets JSON
+        env:
+          STRICT_ENABLED: "0"
         run: |
           python -m pip install --quiet gspread google-auth
           python scripts/examples_to_targets_json.py
+          echo '--- DEBUG: examples_targets.json length & first item ---'
+          if [ -f config/examples_targets.json ]; then
+            jq 'length' config/examples_targets.json || true
+            jq '.[0]' config/examples_targets.json || true
+          else
+            echo 'config/examples_targets.json not found'
+          fi
       - name: Install deps for extract
         run: |
           python -m pip install --quiet requests beautifulsoup4 lxml
       - name: Extract from examples (selectors-driven)
         run: |
           python -m src.run_extract config/examples_targets.json
+      - name: Debug CSV outputs
+        run: |
+          ls -1 *.csv || true
+          for f in *.csv; do echo "== $f =="; head -n 5 "$f"; break; done || true
       - name: Push CSVs to Google Sheets
         run: |
           python -m pip install --quiet gspread google-auth
