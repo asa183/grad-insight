@@ -1,0 +1,38 @@
+name: Examples Blockify to Google Sheets
+
+on:
+  workflow_dispatch:
+    inputs:
+      EXAMPLES_NAME:
+        description: "Worksheet name that contains Examples"
+        required: false
+        default: "examples"
+      MAX_BLOCKS:
+        description: "Max blocks per page"
+        required: false
+        default: "300"
+
+jobs:
+  blockify:
+    runs-on: ubuntu-22.04
+    env:
+      GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+      SHEET_ID: ${{ secrets.SHEET_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install deps
+        run: |
+          python -m pip install --quiet -r requirements.txt
+      - name: Blockify from Examples and write to same Sheet
+        env:
+          EXAMPLES_NAME: ${{ github.event.inputs.EXAMPLES_NAME }}
+          MAX_BLOCKS: ${{ github.event.inputs.MAX_BLOCKS }}
+        run: |
+          echo "Running blockify: sheet=$SHEET_ID examples=${EXAMPLES_NAME:-examples} max_blocks=${MAX_BLOCKS:-300}"
+          python scripts/sheet_blocks_from_examples.py \
+            --sheet-id "$SHEET_ID" \
+            --examples-name "${EXAMPLES_NAME:-examples}" \
+            --max-blocks "${MAX_BLOCKS:-300}"
