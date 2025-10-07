@@ -143,12 +143,31 @@ def looks_individual_link(link: str, page_url: str) -> bool:
         return False
     try:
         from urllib.parse import urlparse
+        lp = urlparse(u)
         pu = urlparse(page_url)
         root = f"{pu.scheme}://{pu.netloc}/"
         if u == root:
             return False
+        path = lp.path or ""
+        # Hokkaido fish: /faculty-member/<slug>
+        if "/faculty-member/" in path:
+            rest = path.split("/faculty-member/")[-1]
+            first = rest.split("/")[0] if rest else ""
+            if not first:
+                return False
+            if first.startswith("genre") or "genre_" in rest:
+                return False
+            return True
+        # Hokkaido agr: /r/lab/<lab>[#anchor]
+        if "/r/lab/" in path:
+            return True
+        # People/Profile directories of other sites
+        if re.search(r"/(people|person|persons|profiles?|researcher|researchers|staff)/[A-Za-z0-9\-_.]+", path, flags=re.IGNORECASE):
+            return True
     except Exception:
-        pass
+        # best-effort fallback
+        return any(h in u for h in _INDIVIDUAL_URL_HINTS)
+    # hint-based fallback
     return any(h in u for h in _INDIVIDUAL_URL_HINTS)
 
 _TITLE_WORDS = [
