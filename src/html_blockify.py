@@ -285,6 +285,94 @@ def blockify_html(url: str, html: str, max_blocks: int = 300, golden: Optional[D
     except Exception:
         pass
 
+    # Host-specific: Hokkaido AGR faculty listing (per-professor blocks)
+    try:
+        pu = urlparse(url)
+        if (pu.hostname or "") == "www.agr.hokudai.ac.jp" and (pu.path or "").strip("/") == "r/faculty":
+            rows: List[Dict[str, str]] = []
+            bid = 0
+            anchors = []
+            try:
+                anchors = [a for a in root.css('a') if a.attributes.get('href') and '/r/lab/' in a.attributes.get('href')]
+            except Exception:
+                anchors = []
+            seen_paths: set[str] = set()
+            def count_lab_links(n: Node) -> int:
+                try:
+                    return sum(1 for a in n.css('a') if '/r/lab/' in (a.attributes.get('href') or ''))
+                except Exception:
+                    return 0
+            for a in anchors:
+                # ascend to a reasonable container
+                cand = a
+                best = None
+                best_depth = 0
+                steps = 0
+                p = getattr(a, 'parent', None)
+                while p is not None and steps < 8:
+                    txt = p.text() or ""
+                    link_count = count_lab_links(p)
+                    tl = len(txt)
+                    ok_len = 40 <= tl <= 4000
+                    ok_links = link_count <= 2
+                    ok_role = _has_role_text(txt)
+                    if ok_len and ok_links and ok_role:
+                        best = p; best_depth = steps; break
+                    # fallback candidate: ok length and single link
+                    if ok_len and link_count == 1 and best is None:
+                        best = p; best_depth = steps
+                    p = getattr(p, 'parent', None)
+                    steps += 1
+                use = best or cand
+                path = _css_path(use)
+                if path in seen_paths:
+                    continue
+                seen_paths.add(path)
+                bid += 1
+                tag = use.tag.upper() if getattr(use, 'tag', None) else 'DIV'
+                # depth
+                depth = 0
+                q = use
+                while q is not None:
+                    depth += 1
+                    q = getattr(q, 'parent', None)
+                # has_img
+                has_img = False
+                try:
+                    has_img = any(True for _ in use.css('img'))
+                except Exception:
+                    has_img = False
+                # links
+                links = []
+                try:
+                    for la in use.css('a'):
+                        href = la.attributes.get('href') or ''
+                        txt = la.text() or ''
+                        if href:
+                            links.append({"href": href, "text": re.sub(r"\s+"," ", txt).strip()})
+                except Exception:
+                    pass
+                try:
+                    text_v = _text_with_breaks_sel(use)
+                except Exception:
+                    text_v = use.text() or ''
+                rows.append({
+                    "block_id": str(bid),
+                    "tag": tag,
+                    "depth": str(depth),
+                    "group_id": "hokudai-agr",
+                    "path": path,
+                    "has_img": "TRUE" if has_img else "FALSE",
+                    "text": text_v[:45000],
+                    "links_json": json_dumps_safe(links),
+                })
+                if len(rows) >= max_blocks:
+                    break
+            if rows:
+                return rows[:max_blocks]
+    except Exception:
+        pass
+
     # gather blocks
     nodes: List[Node] = []
     try:
