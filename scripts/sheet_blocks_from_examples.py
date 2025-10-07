@@ -123,7 +123,19 @@ def run(sheet_id: str, examples_name: str, max_blocks: int):
             print(f"WARN skip: empty or non-html url={url}")
             continue
         t0 = time.time()
-        blocks = blockify_html(url, html, max_blocks=max_blocks)
+        # Golden example fields (Examples sheet may have columns with fullwidth brackets)
+        def col(*names: str) -> str:
+            for nm in names:
+                v = r.get(nm)
+                if v:
+                    return str(v)
+            return ""
+        golden = {
+            "name": col("教授名（JP）", "教授名（JP}"),
+            "theme": col("研究テーマ（JP）", "研究テーマ（JP}"),
+            "link": col("リンク（JP）", "リンク（JP}"),
+        }
+        blocks = blockify_html(url, html, max_blocks=max_blocks, golden=golden)
         elapsed_ms = int((time.time() - t0) * 1000)
         print(f"PARSE blocks_total={len(blocks)} blocks_kept={len(blocks)} elapsed={elapsed_ms}ms")
         # Sheet title

@@ -107,7 +107,7 @@ def _remove_unwanted(root: Node):
             continue
 
 
-def blockify_html(url: str, html: str, max_blocks: int = 300) -> List[Dict[str, str]]:
+def blockify_html(url: str, html: str, max_blocks: int = 300, golden: Optional[Dict[str, str]] = None) -> List[Dict[str, str]]:
     base_url = url
     out: List[Dict[str, str]] = []
     if not HAVE_SELECTOLAX:
@@ -194,6 +194,125 @@ def blockify_html(url: str, html: str, max_blocks: int = 300) -> List[Dict[str, 
             nodes.extend(root.css(sel))
     except Exception:
         nodes = []
+
+    # If golden is provided, prioritize merging around golden pieces into larger containers
+    if golden:
+        name_g = (golden.get("name") or "").strip()
+        theme_g = (golden.get("theme") or "").strip()
+        link_g = (golden.get("link") or "").strip()
+        def looks_personal_href(href: str) -> bool:
+            h = href or ""
+            return any(p in h for p in ("/faculty-member/","/faculty/","/people/","/person/","/profile","/researcher","/staff/"))
+        def contains_text(n: "Node", s: str) -> bool:
+            try:
+                return bool(s) and (s in (n.text() or ""))
+            except Exception:
+                return False
+        seeds: List[Node] = []
+        # anchors first
+        try:
+            for a in root.css("a"):
+                href = a.attributes.get("href") or ""
+                if (link_g and href == link_g) or looks_personal_href(href):
+                    seeds.append(a)
+        except Exception:
+            pass
+        # text matches
+        try:
+            for cand in nodes:
+                if (name_g and contains_text(cand, name_g)) or (theme_g and contains_text(cand, theme_g)):
+                    seeds.append(cand)
+        except Exception:
+            pass
+        # ascend to best container
+        picked: List[Node] = []
+        seen_paths: set[str] = set()
+        def score(n: "Node") -> Tuple[int,int,int,int,int,int]:
+            t = n.text() or ""
+            s_name = 2 if (name_g and (name_g in t)) else 0
+            s_theme = 1 if (theme_g and (theme_g in t)) else 0
+            s_glink = 0
+            try:
+                if link_g:
+                    for a in n.css("a"):
+                        if a.attributes.get("href") == link_g:
+                            s_glink = 2; break
+            except Exception:
+                pass
+            s_plink = 0
+            try:
+                for a in n.css("a"):
+                    if looks_personal_href(a.attributes.get("href") or ""):
+                        s_plink = 1; break
+            except Exception:
+                pass
+            s_img = 0
+            try:
+                s_img = 1 if any(True for _ in n.css("img")) else 0
+            except Exception:
+                s_img = 0
+            tl = len(t)
+            s_len = 1 if (40 <= tl <= 5000) else 0
+            return (s_glink, s_name, s_theme, s_plink, s_img, s_len)
+        for seed in seeds:
+            best = seed
+            best_sc = score(seed)
+            p = getattr(seed, "parent", None)
+            steps = 0
+            while p is not None and steps < 8:
+                sc = score(p)
+                if sc > best_sc:
+                    best, best_sc = p, sc
+                p = getattr(p, "parent", None)
+                steps += 1
+            path = _css_path(best)
+            if path in seen_paths:
+                continue
+            seen_paths.add(path)
+            picked.append(best)
+            if len(picked) >= max_blocks:
+                break
+        if picked:
+            rows: List[Dict[str, str]] = []
+            bid = 0
+            for n in picked:
+                bid += 1
+                tag = n.tag.upper()
+                depth = 0
+                p = n
+                while p is not None:
+                    depth += 1
+                    p = getattr(p, "parent", None)
+                has_img = False
+                try:
+                    has_img = any(True for _ in n.css("img"))
+                except Exception:
+                    has_img = False
+                path = _css_path(n)
+                links = []
+                try:
+                    for a in n.css("a"):
+                        href = a.attributes.get("href") or ""
+                        txt = a.text() or ""
+                        if href:
+                            links.append({"href": href, "text": re.sub(r"\s+", " ", txt).strip()})
+                except Exception:
+                    pass
+                try:
+                    text_v = _text_with_breaks_sel(n)
+                except Exception:
+                    text_v = n.text() or ""
+                rows.append({
+                    "block_id": str(bid),
+                    "tag": tag,
+                    "depth": str(depth),
+                    "group_id": "golden",
+                    "path": path,
+                    "has_img": "TRUE" if has_img else "FALSE",
+                    "text": text_v[:45000],
+                    "links_json": json_dumps_safe(links),
+                })
+            return rows[:max_blocks]
 
     # group by parent+signature
     grouped: Dict[str, List[Node]] = {}
