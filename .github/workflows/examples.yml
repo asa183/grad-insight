@@ -37,11 +37,8 @@ jobs:
           python -m pip install --quiet playwright
       - name: Resolve Playwright version
         id: pwver
-        run: echo "version=$(python - <<'PY' 2>/dev/null
-import playwright
-print(playwright.__version__)
-PY
-)" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "version=$(python -c 'import playwright; print(playwright.__version__)')" >> "$GITHUB_OUTPUT"
       - name: Cache Playwright browsers
         uses: actions/cache@v4
         with:
