@@ -1,0 +1,58 @@
+{
+  "meta": {
+    "run_id": "20251007",
+    "target_id": "hokudai_fish_ex",
+    "url": "https://www2.fish.hokudai.ac.jp/faculty-member/?key=jp",
+    "host": "www2.fish.hokudai.ac.jp",
+    "mode": "bulk",
+    "capabilities": {
+      "playwright": true,
+      "ocr": true
+    }
+  },
+  "counts": {
+    "dom_items": 80,
+    "rows_out": 50,
+    "unique_rows": 50,
+    "fetched_items_css": 0,
+    "fetched_items_fb": 0,
+    "before_rows": 80
+  },
+  "merge_keys": {
+    "link": 50,
+    "name+lab": 0,
+    "name": 0,
+    "frag": 0,
+    "anon": 0
+  },
+  "drops": {
+    "no_name_link": 0,
+    "dup_key": 0,
+    "not_person": 30
+  },
+  "limits": {
+    "EX_ENUM_MAX_ITEMS": 0,
+    "EX_ENUM_MAX_SHOTS": 0,
+    "EX_ENUM_TIMEOUT_MS": 0,
+    "EX_NAV_TIMEOUT_MS": 0,
+    "EX_ACTION_TIMEOUT_MS": 0
+  },
+  "timings": {
+    "fetch_total_ms": 5245
+  },
+  "first_row_preview": {
+    "大学名": "北海道大学",
+    "研究科": "水産科学院",
+    "専攻名": "",
+    "氏名（漢字）": "阿部 泰人",
+    "研究テーマ（スラッシュ区切り）": "生物資源",
+    "個人ページURL": "https://www2.fish.hokudai.ac.jp/faculty-member/abehiroto?key=jp",
+    "出典URL": "https://www2.fish.hokudai.ac.jp/faculty-member/?key=jp",
+    "取得日時": "2025-10-07",
+    "run_id": "20251007",
+    "研究室名称（JP）": "",
+    "タグ（JP）": ""
+  },
+  "status": "WARN",
+  "code": "MERGE_COLLAPSE"
+}

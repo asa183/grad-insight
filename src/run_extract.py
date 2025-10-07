@@ -322,6 +322,16 @@ def run_target(t: dict) -> list[dict]:
                 item_selectors = []
                 if sel.get('item_selector'):
                     item_selectors.append(sel.get('item_selector'))
+                # High-signal selectors first
+                item_selectors += [
+                    "main li:has(a[href*='/faculty-member/'])",
+                    "li:has(a[href*='/faculty-member/'])",
+                    "article:has(a[href*='/faculty-member/'])",
+                    ".entry:has(a[href*='/faculty-member/'])",
+                    "li:has(a[href*='/person'])",
+                    "li:has(a[href*='/people'])",
+                    "li:has(a[href*='/profile'])",
+                ]
                 item_selectors += DEFAULT_ITEM_SELECTORS
                 from urllib.parse import urlparse
                 host = (urlparse(url).hostname or "")
@@ -331,6 +341,7 @@ def run_target(t: dict) -> list[dict]:
                         "main .facultyList li",
                         "main .item-faculty",
                         "main .faculty-member",
+                        "li:has(a[href*='/faculty-member/'])",
                         ".facultyList li",
                         ".member",
                         ".teacher",
@@ -489,17 +500,26 @@ def run_target(t: dict) -> list[dict]:
                             v = safe_select_text_soup(frag, s2)
                             if v:
                                 theme_css = v; break
-                    # If name is still empty, try anchor text as a fallback for name
-                    if not name_css and link_anchor_text:
-                        name_css = link_anchor_text
+                    # Prefer anchor text when it points to a personal page
+                    if link_css and link_anchor_text:
+                        try:
+                            if looks_individual_link(link_css, url):
+                                nm_anchor = normalize_name(link_anchor_text)
+                                if nm_anchor:
+                                    name_css = nm_anchor
+                        except Exception:
+                            pass
                     # Title-based extraction (e.g., "教授", "Associate Professor")
                     if not name_css:
                         frag_text = frag.get_text(" ", strip=True)
                         nb = find_name_by_title(frag_text)
                         if nb:
                             name_css = nb
-                    # If empty or single-block like surname-only, re-normalize container text
-                    if (not name_css) or (name_css and " " not in (normalize_name(name_css) or name_css)):
+                    # Normalize candidate; if still missing or insufficient (no given name), re-normalize on container text
+                    nm_try = normalize_name(name_css) if name_css else None
+                    if nm_try:
+                        name_css = nm_try
+                    else:
                         nn2 = normalize_name(frag.get_text(" ", strip=True))
                         if nn2:
                             name_css = nn2

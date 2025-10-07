@@ -1,0 +1,13 @@
+[
+  {
+    "id": "hokudai_fish",
+    "university": "北海道大学",
+    "graduate_school": "水産科学院",
+    "major": "",
+    "url": "https://www2.fish.hokudai.ac.jp/faculty-member/?key=jp",
+    "page_type": "auto",
+    "selectors": {},
+    "dynamic": false,
+    "enabled": true
+  }
+]
