@@ -22,42 +22,39 @@ def _slugify(s: str) -> str:
     return s.lower().strip("-") or "page"
 
 
-def _text_with_breaks_sel(node: Node) -> str:
-    # Build text with light breaks on certain tags
-    parts: List[str] = []
-    def walk(n: Node):
-        # texts
-        if n.text(decode=True):
-            parts.append(n.text())
-        # children
-        for c in n.iter_children():
-            walk(c)
-            if c.tag in ("br",):
-                parts.append("\n")
-        if n.tag in ("p", "li", "div", "section", "article", "tr"):
-            parts.append("\n")
-    walk(node)
-    s = "".join(parts)
-    # compress trailing spaces but keep newlines
-    s = re.sub(r"\s+\n", "\n", s)
-    s = re.sub(r"\n{3,}", "\n\n", s)
-    return s.strip()
+def _text_with_breaks_sel(node: "Node") -> str:
+    # Minimal: rely on selectolax text extraction
+    try:
+        s = node.text() or ""
+        return s.strip()
+    except Exception:
+        return ""
 
 
-def _nth_index_in_parent(n: Node) -> int:
-    p = n.parent
+def _iter_children_sel(n: "Node"):
+    try:
+        c = n.child
+        while c is not None:
+            yield c
+            c = c.next
+    except Exception:
+        return
+
+
+def _nth_index_in_parent(n: "Node") -> int:
+    p = getattr(n, "parent", None)
     if not p:
         return 1
     idx = 1
-    for c in p.iter_children():
+    for c in _iter_children_sel(p):
         if c is n:
             return idx
-        if c.tag == n.tag:
+        if getattr(c, "tag", None) == getattr(n, "tag", None):
             idx += 1
     return idx
 
 
-def _css_path(n: Node, max_depth: int = 8) -> str:
+def _css_path(n: "Node", max_depth: int = 8) -> str:
     parts: List[str] = []
     cur: Optional[Node] = n
     depth = 0
@@ -73,12 +70,13 @@ def _css_path(n: Node, max_depth: int = 8) -> str:
     return ">".join(parts)
 
 
-def _child_signature(n: Node) -> str:
+def _child_signature(n: "Node") -> str:
     counts: Dict[str, int] = {}
-    for c in n.iter_children():
-        if not getattr(c, "tag", None):
+    for c in _iter_children_sel(n):
+        tag = getattr(c, "tag", None)
+        if not tag:
             continue
-        counts[c.tag] = counts.get(c.tag, 0) + 1
+        counts[tag] = counts.get(tag, 0) + 1
     items = sorted(counts.items())
     return ";".join(f"{k}:{v}" for k, v in items)
 
@@ -275,4 +273,3 @@ def json_dumps_safe(obj) -> str:
         return json.dumps(obj, ensure_ascii=False)
     except Exception:
         return "[]"
-
