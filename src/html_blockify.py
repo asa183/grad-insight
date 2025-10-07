@@ -291,43 +291,33 @@ def blockify_html(url: str, html: str, max_blocks: int = 300, golden: Optional[D
         if (pu.hostname or "") == "www.agr.hokudai.ac.jp" and (pu.path or "").strip("/") == "r/faculty":
             rows: List[Dict[str, str]] = []
             bid = 0
-            anchors = []
-            try:
-                anchors = [a for a in root.css('a') if a.attributes.get('href') and '/r/lab/' in a.attributes.get('href')]
-            except Exception:
-                anchors = []
-            seen_paths: set[str] = set()
+            seen_keys: set[str] = set()
+            # Prefer li elements that contain exactly one /r/lab/ link and a role keyword
             def count_lab_links(n: Node) -> int:
                 try:
                     return sum(1 for a in n.css('a') if '/r/lab/' in (a.attributes.get('href') or ''))
                 except Exception:
                     return 0
-            for a in anchors:
-                # ascend to a reasonable container
-                cand = a
-                best = None
-                best_depth = 0
-                steps = 0
-                p = getattr(a, 'parent', None)
-                while p is not None and steps < 8:
-                    txt = p.text() or ""
-                    link_count = count_lab_links(p)
-                    tl = len(txt)
-                    ok_len = 40 <= tl <= 4000
-                    ok_links = link_count <= 2
-                    ok_role = _has_role_text(txt)
-                    if ok_len and ok_links and ok_role:
-                        best = p; best_depth = steps; break
-                    # fallback candidate: ok length and single link
-                    if ok_len and link_count == 1 and best is None:
-                        best = p; best_depth = steps
-                    p = getattr(p, 'parent', None)
-                    steps += 1
-                use = best or cand
-                path = _css_path(use)
-                if path in seen_paths:
+            # scan all li nodes
+            for li in root.css('li'):
+                try:
+                    tl = len(li.text() or '')
+                    if tl < 20 or tl > 6000:
+                        continue
+                    lc = count_lab_links(li)
+                    if lc != 1:
+                        continue
+                    if not _has_role_text(li.text() or ''):
+                        continue
+                except Exception:
                     continue
-                seen_paths.add(path)
+                # use this li as block
+                use = li
+                path = _css_path(use)
+                key = path
+                if key in seen_keys:
+                    continue
+                seen_keys.add(key)
                 bid += 1
                 tag = use.tag.upper() if getattr(use, 'tag', None) else 'DIV'
                 # depth
