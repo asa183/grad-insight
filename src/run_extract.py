@@ -150,6 +150,9 @@ def run_target(t: dict) -> list[dict]:
             base_rows = [{"name": "", "theme": "", "link": "", "_html": it.get("html",""), "_shot": it.get("screenshot_path",""), "_seq": it.get("seq","1")} for it in dom_items]
         else:
             base_rows = rows_css if rows_css else rows_fb
+        # If there are no DOM/CSS/fallback rows but fixed values exist, emit one row based on fixed only.
+        if not base_rows and any(f.get(k) for k in ("lab","name","theme","link","tag")):
+            base_rows = [{"name": "", "theme": "", "link": "", "lab": "", "tag": ""}]
         rows_out = 0
         for br in base_rows:
             name_base = br.get("name", "")
