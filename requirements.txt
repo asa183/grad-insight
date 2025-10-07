@@ -1,6 +1,7 @@
 requests
 beautifulsoup4
 lxml
+selectolax
 playwright
 pillow
 pytesseract
