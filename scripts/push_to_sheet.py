@@ -1,4 +1,4 @@
-import os, sys, json, csv, glob, gspread
+import os, sys, json, csv, glob, gspread, os.path
 from google.oauth2.service_account import Credentials
 
 SHEET_ID = os.environ["SHEET_ID"]
@@ -27,13 +27,32 @@ all_rows, header = [], None
 for f in files:
     with open(f, encoding="utf-8") as r:
         rd = list(csv.reader(r))
-        if not rd: continue
-        if header is None: header = rd[0]
+        if not rd:
+            continue
+        hdr = rd[0]
+        body = rd[1:] if len(rd) > 1 else []
+        if header is None:
+            header = hdr
+
+        # タブ名はCSVの内容から「大学名-研究科」を優先。無ければファイル名。
+        def col_index(name: str):
+            try:
+                return hdr.index(name)
+            except ValueError:
+                return None
+
         tab = os.path.splitext(os.path.basename(f))[0]
-        upsert(tab, rd)
-        all_rows += rd[1:]
+        idx_uni = col_index("大学名")
+        idx_grad = col_index("研究科")
+        if idx_uni is not None and idx_grad is not None and body:
+            uni = (body[0][idx_uni] or "").strip()
+            grad = (body[0][idx_grad] or "").strip()
+            if uni or grad:
+                tab = f"{uni}-{grad}".strip("-")
+
+        upsert(tab, [hdr] + body)
+        all_rows += body
 
 if header:
     upsert("raw", [header] + all_rows)
 print(f"Updated {len(files)} tabs + raw")
-
