@@ -72,6 +72,7 @@ jobs:
           path: |
             logs/**
             evidence/**
+          if-no-files-found: ignore
       - name: Debug CSV outputs
         run: |
           ls -1 *.csv || true
