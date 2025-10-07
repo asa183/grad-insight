@@ -70,25 +70,50 @@ def parse_cards(html: str, meta: dict) -> list[dict]:
     exclude_re = rules.get("theme_exclude")
     max_topics = int(rules.get("max_topics", 12))
 
+    # フォールバック候補
+    fallback_cards = ".card, .profile, .teacher, .member"
+    fallback_name = [name_sel] if name_sel else [".name", ".teacher-name", ".ttl"]
+    fallback_theme = [theme_sel] if theme_sel else [".desc", ".research", ".field", ".keyword", "p"]
+
     recs: list[dict] = []
-    for card in soup.select(card_sel or ".card, .profile, .teacher"):
-        name_text = card.select_one(name_sel).get_text(" ", strip=True) if name_sel and card.select_one(name_sel) else card.get_text(" ", strip=True)
+    for card in soup.select(card_sel or fallback_cards):
+        # name
+        name_text = ""
+        node = None
+        for sel in fallback_name:
+            if not sel:
+                continue
+            node = card.select_one(sel)
+            if node:
+                name_text = node.get_text(" ", strip=True)
+                break
+        if not name_text:
+            name_text = card.get_text(" ", strip=True)
         nm = normalize_name(name_text, cleanup)
         if not nm:
             continue
-        theme_node = card.select_one(theme_sel) if theme_sel else None
+        # theme
+        theme_node = None
+        for sel in fallback_theme:
+            if not sel:
+                continue
+            theme_node = card.select_one(sel)
+            if theme_node:
+                break
         theme_raw = theme_node.get_text("\n", strip=True) if theme_node else ""
         theme = normalize_themes(theme_raw, split_pattern, exclude_re, max_topics)
+        # link
         link = ""
-        if link_sel and card.select_one(link_sel):
-            link = card.select_one(link_sel).get("href") or ""
+        link_node = card.select_one(link_sel) if link_sel else (card.select_one("a[href]") or None)
+        if link_node:
+            link = link_node.get("href") or ""
         recs.append({"name": nm, "theme": theme, "link": link})
     return recs
 
 def parse_list(html: str, meta: dict) -> list[dict]:
     soup = BeautifulSoup(html, "lxml")
     sels = meta.get("selectors", {})
-    item_sel = sels.get("item_selector") or "li, .item"
+    item_sel = sels.get("item_selector") or "li, .member, .teacher, .card, .item"
     name_sel = sels.get("name_selector")
     theme_sel = sels.get("theme_selector")
     link_sel = sels.get("link_selector")
@@ -99,19 +124,41 @@ def parse_list(html: str, meta: dict) -> list[dict]:
     exclude_re = rules.get("theme_exclude")
     max_topics = int(rules.get("max_topics", 12))
 
+    # フォールバック候補
+    fallback_name = [name_sel] if name_sel else [".name", ".teacher-name", ".ttl"]
+    fallback_theme = [theme_sel] if theme_sel else [".desc", ".research", ".field", ".keyword", "p"]
+
     recs: list[dict] = []
     for it in soup.select(item_sel):
-        node = it.select_one(name_sel) if name_sel else it
-        name_text = node.get_text(" ", strip=True)
+        # name
+        name_text = ""
+        node = None
+        for sel in fallback_name:
+            if not sel:
+                continue
+            node = it.select_one(sel)
+            if node:
+                name_text = node.get_text(" ", strip=True)
+                break
+        if not name_text:
+            name_text = it.get_text(" ", strip=True)
         nm = normalize_name(name_text, cleanup)
         if not nm:
             continue
-        theme_node = it.select_one(theme_sel) if theme_sel else None
+        # theme
+        theme_node = None
+        for sel in fallback_theme:
+            if not sel:
+                continue
+            theme_node = it.select_one(sel)
+            if theme_node:
+                break
         theme_raw = theme_node.get_text("\n", strip=True) if theme_node else ""
         theme = normalize_themes(theme_raw, split_pattern, exclude_re, max_topics)
+        # link
         link = ""
-        if link_sel and it.select_one(link_sel):
-            link = it.select_one(link_sel).get("href") or ""
+        link_node = it.select_one(link_sel) if link_sel else (it.select_one("a[href]") or None)
+        if link_node:
+            link = link_node.get("href") or ""
         recs.append({"name": nm, "theme": theme, "link": link})
     return recs
-

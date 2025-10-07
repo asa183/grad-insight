@@ -1,9 +1,13 @@
 import re
 
 NAME_RE = re.compile(r"([一-龥々〆ヵヶ]{1,4})[ \u3000]+([一-龥々〆ヵヶ]{1,6})")
+TITLE_RE = re.compile(
+    r"(教授|准教授|助教|講師|助教授|特任教授|特任准教授|特任講師|非常勤講師|客員教授|客員准教授|客員講師|名誉教授|研究員|特別研究員|助手|主任|准\s*教授|教授\s*等)")
 
 def normalize_name(text: str, cleanup_regex: str | None = None) -> str | None:
     s = text or ""
+    # まず肩書きを共通除去
+    s = TITLE_RE.sub(" ", s)
     if cleanup_regex:
         s = re.sub(cleanup_regex, " ", s)
     s = re.sub(r"\s+", " ", s).strip()
@@ -39,4 +43,3 @@ def normalize_themes(s: str, split_pattern: str, exclude_re: str | None = None, 
         if p not in seen:
             seen.add(p); uniq.append(p)
     return " / ".join(uniq[:max_topics])
-
