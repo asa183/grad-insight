@@ -11,7 +11,7 @@ from bs4 import BeautifulSoup
 
 COLUMNS = [
     "大学名","研究科","専攻名","氏名（漢字）",
-    "研究テーマ（スラッシュ区切り）","個人ページURL","出典URL","取得日時",
+    "研究テーマ（スラッシュ区切り）","個人ページURL","出典URL","取得日時","run_id",
     "研究室名称（JP）","タグ（JP）",
 ]
 
@@ -44,19 +44,12 @@ def extract_list_page(html: str, base_url: str, selectors: dict) -> list[dict]:
 
     rows: list[dict] = []
     if not items:
-        # Last resort: page-level extraction
-        name = normalize_name(safe_select_text_soup(soup, selectors.get('name_selector'))) or ""
-        theme = safe_select_text_soup(soup, selectors.get('theme_selector')) or ""
-        link = safe_select_href_soup(soup, selectors.get('link_selector'), base_url) or ""
-        lab = safe_select_text_soup(soup, selectors.get('lab_selector')) or ""
-        tag = safe_select_text_soup(soup, selectors.get('tag_selector')) or ""
-        if any([name, theme, link, lab, tag]):
-            rows.append(dict(lab=lab, name=name, theme=theme, link=link, tag=tag))
+        # No page-level fallback here (per requirements)
         return rows
 
     for it in items:
         lab = safe_select_text_soup(it, selectors.get('lab_selector')) or ""
-        name = normalize_name(safe_select_text_soup(it, selectors.get('name_selector'))) or ""
+        name = safe_select_text_soup(it, selectors.get('name_selector')) or ""
         theme = safe_select_text_soup(it, selectors.get('theme_selector')) or ""
         link = safe_select_href_soup(it, selectors.get('link_selector'), base_url) or ""
         tag = safe_select_text_soup(it, selectors.get('tag_selector')) or ""
@@ -64,11 +57,15 @@ def extract_list_page(html: str, base_url: str, selectors: dict) -> list[dict]:
     return rows
 
 
+def _score_row(r: dict) -> int:
+    return int(bool(r.get('name'))) + int(bool(r.get('theme'))) + int(bool(r.get('link'))) + int(bool(r.get('lab'))) + int(bool(r.get('tag')))
+
+
 def run_target(t: dict) -> list[dict]:
     uni, grad, major = t.get("university", ""), t.get("graduate_school", ""), t.get("major", "")
     merged: dict[str, dict] = {}
 
-    def merge(name: str, theme: str, url: str, source: str, today: str, lab: str = "", tag: str = ""):
+    def merge(name: str, theme: str, url: str, source: str, today: str, run_id: str, lab: str = "", tag: str = ""):
         key = name or f"{lab}:{url}"
         if key not in merged:
             merged[key] = {
@@ -76,7 +73,7 @@ def run_target(t: dict) -> list[dict]:
                 "氏名（漢字）": name or "",
                 "研究テーマ（スラッシュ区切り）": theme or "",
                 "個人ページURL": url or "",
-                "出典URL": source, "取得日時": today,
+                "出典URL": source, "取得日時": today, "run_id": run_id,
                 "研究室名称（JP）": lab or "",
                 "タグ（JP）": tag or "",
             }
@@ -103,29 +100,56 @@ def run_target(t: dict) -> list[dict]:
         url = t.get("url", "")
         f = t.get("fixed", {})
         sel = t.get("selectors", {})
-        use_fetch = False
-        # If any field missing and some selector provided or item_selector present, fetch
-        for k in ("lab", "name", "theme", "link", "tag"):
-            if not (f.get(k) or ""):
-                if any(sel.get(x) for x in (f"{k}_selector",)) or sel.get("item_selector"):
-                    use_fetch = True
-        rows_extracted = []
-        if use_fetch and url:
+        # 欠けがあれば取得（CSSが空でもフォールバック許容）
+        need_any = any(not (f.get(k) or "") for k in ("lab","name","theme","link","tag"))
+        rows_css: list[dict] = []
+        rows_fb: list[dict] = []
+        html = ""
+        if need_any and url:
             html = fetch_dynamic_html(url) if t.get("dynamic") else fetch_html(url)
-            rows_extracted = extract_list_page(html, url, sel)
-        # choose first extracted item for complements
-        cand = rows_extracted[0] if rows_extracted else {}
+            # CSS/list抽出（指定がある場合）
+            if sel.get('item_selector') or any(sel.get(x) for x in ('lab_selector','name_selector','theme_selector','link_selector','tag_selector')):
+                rows_css = extract_list_page(html, url, sel)
+            # フォールバック抽出（list/cards/tr）
+            try:
+                rows_fb_list = [{"lab":"","name": r.get("name",""), "theme": r.get("theme",""), "link": r.get("link",""), "tag":""} for r in parse_list(html, {"selectors": {}})]
+            except Exception:
+                rows_fb_list = []
+            try:
+                rows_fb_cards = [{"lab":"","name": r.get("name",""), "theme": r.get("theme",""), "link": r.get("link",""), "tag":""} for r in parse_cards(html, {"selectors": {}})]
+            except Exception:
+                rows_fb_cards = []
+            try:
+                rows_fb_tr = [{"lab":"","name": r.get("name",""), "theme": r.get("theme",""), "link": r.get("link",""), "tag":""} for r in parse_list(html, {"selectors": {"item_selector": "tr"}})]
+            except Exception:
+                rows_fb_tr = []
+            rows_fb = rows_fb_list + rows_fb_cards + rows_fb_tr
+        # 最良候補を選択
+        candidates: list[tuple[str,int,dict]] = []
+        for r in rows_css:
+            candidates.append(("css", _score_row(r), r))
+        for r in rows_fb:
+            candidates.append(("fallback", _score_row(r), r))
+        cand_src, _, cand = (None, 0, {})
+        if candidates:
+            cand_src, _, cand = max(candidates, key=lambda x: x[1])
+        # fixed優先で補完
         name_val = f.get("name") or cand.get("name", "")
+        if not f.get("name") and name_val and os.environ.get("EXAMPLES_NORMALIZE_NAME", "0") in ("1","true","TRUE"):
+            name_val = normalize_name(name_val) or name_val
         theme_val = f.get("theme") or cand.get("theme", "")
         link_val = f.get("link") or cand.get("link", "")
         lab_val = f.get("lab") or cand.get("lab", "")
         tag_val = f.get("tag") or cand.get("tag", "")
         today = datetime.date.today().isoformat()
-        src_used = "fixed" if any([f.get("name"), f.get("theme"), f.get("link"), f.get("lab"), f.get("tag")]) else ("css" if rows_extracted else "none")
-        print(f"INFO examples id={t.get('id','')} src={src_used} dynamic={bool(t.get('dynamic'))} fetched_items={len(rows_extracted)}")
-        if use_fetch and url and not rows_extracted and any(sel.values()):
+        run_id = os.environ.get("GITHUB_RUN_ID") or os.environ.get("RUN_ID") or today.replace("-", "")
+        src_used = "fixed" if any([f.get("name"), f.get("theme"), f.get("link"), f.get("lab"), f.get("tag")]) else (cand_src or "none")
+        css_count = len(rows_css) if (need_any and url) else 0
+        fb_count = len(rows_fb) if (need_any and url) else 0
+        print(f"INFO examples id={t.get('id','')} src={src_used} dynamic={bool(t.get('dynamic'))} fetched_items_css={css_count} fetched_items_fb={fb_count}")
+        if need_any and url and not rows_css and any(sel.values()):
             print(f"WARN examples id={t.get('id','')}: selectors provided but no items extracted")
-        merge(name_val or "", theme_val or "", link_val or "", url, today, lab=lab_val or "", tag=tag_val or "")
+        merge(name_val or "", theme_val or "", link_val or "", url, today, run_id, lab=lab_val or "", tag=tag_val or "")
         return list(merged.values())
 
     # Default path (table/cards/list auto)
@@ -143,8 +167,11 @@ def run_target(t: dict) -> list[dict]:
             continue
         html = fetch_dynamic_html(url) if p.get("dynamic") else fetch_html(url)
         rows = extract_by_type(html, p.get("page_type", "table"), p.get("selectors", {}))
+        run_id = os.environ.get("GITHUB_RUN_ID") or os.environ.get("RUN_ID") or today.replace("-", "")
         for r in rows:
-            merge(normalize_name(r.get("name", "")) or "", r.get("theme", ""), r.get("link", ""), url, today)
+            name_v = r.get("name", "")
+            name_v = normalize_name(name_v) or name_v
+            merge(name_v, r.get("theme", ""), r.get("link", ""), url, today, run_id)
 
     return list(merged.values())
 
