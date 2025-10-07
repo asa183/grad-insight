@@ -25,12 +25,7 @@ jobs:
       - id: mk
         shell: bash
         run: |
-          matrix=$(python - <<'PY'
-import json
-items=json.load(open('config/targets_flat.json'))
-print(json.dumps({'include':[{'id':i['id']} for i in items]}, ensure_ascii=False))
-PY
-          )
+          matrix=$(python -c "import json,sys; items=json.load(open('config/targets_flat.json')); print(json.dumps({'include':[{'id':i['id']} for i in items]}, ensure_ascii=False))")
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
 
   run:
