@@ -460,6 +460,17 @@ def run_target(t: dict) -> list[dict]:
                             txt = frag.get_text(" ", strip=True) or ""
                             parts = txt.split()
                             name_css = " ".join(parts[:2]) if parts else ""
+                    # Attribute-based hints (alt/aria-label) if still missing
+                    if not name_css:
+                        try:
+                            alts = [el.get("alt") for el in frag.select("[alt]") if el.get("alt")]
+                            labels = [el.get("aria-label") for el in frag.select("[aria-label]") if el.get("aria-label")]
+                            for cand in alts + labels:
+                                nm = normalize_name(cand)
+                                if nm:
+                                    name_css = nm; break
+                        except Exception:
+                            pass
                     if not link_css:
                         # Prefer individual-like links before generic anchors; keep anchor text if available
                         for lsel in ("a[href*='/faculty-member/']", "a[href*='/r/lab/']", "a[href*='/faculty']", "a[href*='/teacher']", "a[href*='/member']"):

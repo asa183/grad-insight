@@ -132,10 +132,21 @@ def enumerate_dom_items(
                     except Exception:
                         is_small_box = False
                     if (len(inner_txt) <= 4) or has_nameish_class or is_small_box:
+                        # escalate to a likely person-block container; if still too small, go up to two more ancestors
                         try:
                             target = h.evaluate_handle("el => el.closest('li, article, .card, .member, .teacher, .profile, .faculty-member, .item-faculty, .entry') || el")
                         except Exception:
                             target = h
+                        # second-chance: if target text still short (likely single block), go up parents
+                        try:
+                            for _ in range(2):
+                                t_txt = target.evaluate("el => (el.innerText||'').trim()") or ""
+                                if len(t_txt) >= 6:
+                                    break
+                                parent = target.evaluate_handle("el => el.parentElement || el")
+                                target = parent
+                        except Exception:
+                            pass
                     try:
                         html = target.evaluate("el => el.outerHTML") or ""
                     except Exception:
