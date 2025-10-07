@@ -487,8 +487,8 @@ def run_target(t: dict) -> list[dict]:
                         nb = find_name_by_title(frag_text)
                         if nb:
                             name_css = nb
-                    # If still empty, try re-normalization on container text
-                    if not name_css:
+                    # If empty or single-block like surname-only, re-normalize container text
+                    if (not name_css) or (name_css and " " not in (normalize_name(name_css) or name_css)):
                         nn2 = normalize_name(frag.get_text(" ", strip=True))
                         if nn2:
                             name_css = nn2
@@ -511,8 +511,8 @@ def run_target(t: dict) -> list[dict]:
                 link_val = (ocr_values["link"] or css_values["link"]) or link_base or f.get("link") or ""
                 lab_val = lab_base or f.get("lab") or ""
                 tag_val = tag_base or f.get("tag") or ""
-            # Prefer normalization first; if fails, fall back to loose cleaning
-            if not f.get("name") and name_val:
+            # Prefer normalization first; only skip if using fixed value verbatim
+            if name_val:
                 nm_try = normalize_name(name_val)
                 if nm_try:
                     name_val = nm_try

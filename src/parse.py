@@ -89,7 +89,7 @@ def parse_cards(html: str, meta: dict) -> list[dict]:
         if not name_text:
             name_text = card.get_text(" ", strip=True)
         nm = normalize_name(name_text, cleanup)
-        if not nm and name_text:
+        if (not nm and name_text) or (nm and " " not in nm):
             nm2 = normalize_name(card.get_text(" ", strip=True), cleanup)
             if nm2:
                 nm = nm2
@@ -144,7 +144,7 @@ def parse_list(html: str, meta: dict) -> list[dict]:
         if not name_text:
             name_text = it.get_text(" ", strip=True)
         nm = normalize_name(name_text, cleanup)
-        if not nm and name_text:
+        if (not nm and name_text) or (nm and " " not in nm):
             nm2 = normalize_name(it.get_text(" ", strip=True), cleanup)
             if nm2:
                 nm = nm2
