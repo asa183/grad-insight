@@ -472,7 +472,17 @@ def run_target(t: dict) -> list[dict]:
                 if not (name_val or link_val):
                     drops["no_name_link"] += 1
                     continue
-                # If name doesn't look like a person and link not individual-like, drop
+                # Host-specific: on Hokkaido fish/agr, require individual-like link to avoid category tiles
+                try:
+                    from urllib.parse import urlparse as _urlparse
+                    _host = (_urlparse(url).hostname or "")
+                except Exception:
+                    _host = ""
+                if _host in ("www2.fish.hokudai.ac.jp", "www.agr.hokudai.ac.jp"):
+                    if not looks_individual_link(link_val, url):
+                        drops["not_person"] += 1
+                        continue
+                # Generic: if name doesn't look like a person and link not individual-like, drop
                 if not clean_person_name(name_val) and not looks_individual_link(link_val, url):
                     drops["not_person"] += 1
                     continue
