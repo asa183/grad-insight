@@ -70,10 +70,10 @@ def parse_cards(html: str, meta: dict) -> list[dict]:
     exclude_re = rules.get("theme_exclude")
     max_topics = int(rules.get("max_topics", 12))
 
-    # フォールバック候補
-    fallback_cards = ".card, .profile, .teacher, .member"
-    fallback_name = [name_sel] if name_sel else [".name", ".teacher-name", ".ttl"]
-    fallback_theme = [theme_sel] if theme_sel else [".desc", ".research", ".field", ".keyword", "p"]
+    # フォールバック候補（カード系も幅広く）
+    fallback_cards = ".card, .profile, .profile-card, .facultyCard, .teacher, .member, article, .entry"
+    fallback_name = [name_sel] if name_sel else [".name", ".teacher-name", ".ttl", ".title", ".heading", ".[class*='name']"]
+    fallback_theme = [theme_sel] if theme_sel else [".desc", ".description", ".research", ".field", ".keyword", ".content", ".text", "p", "li"]
 
     recs: list[dict] = []
     for card in soup.select(card_sel or fallback_cards):
@@ -113,7 +113,7 @@ def parse_cards(html: str, meta: dict) -> list[dict]:
 def parse_list(html: str, meta: dict) -> list[dict]:
     soup = BeautifulSoup(html, "lxml")
     sels = meta.get("selectors", {})
-    item_sel = sels.get("item_selector") or "li, .member, .teacher, .card, .item"
+    item_sel = sels.get("item_selector") or "li, .member, .teacher, .card, .item, tr, .profile, article, .entry, .list-item, .list-group-item, .facultyList li"
     name_sel = sels.get("name_selector")
     theme_sel = sels.get("theme_selector")
     link_sel = sels.get("link_selector")
@@ -124,9 +124,9 @@ def parse_list(html: str, meta: dict) -> list[dict]:
     exclude_re = rules.get("theme_exclude")
     max_topics = int(rules.get("max_topics", 12))
 
-    # フォールバック候補
-    fallback_name = [name_sel] if name_sel else [".name", ".teacher-name", ".ttl"]
-    fallback_theme = [theme_sel] if theme_sel else [".desc", ".research", ".field", ".keyword", "p"]
+    # フォールバック候補（リスト系も幅広く）
+    fallback_name = [name_sel] if name_sel else [".name", ".teacher-name", ".ttl", ".title", ".heading", ".[class*='name']"]
+    fallback_theme = [theme_sel] if theme_sel else [".desc", ".description", ".research", ".field", ".keyword", ".content", ".text", "p", "li"]
 
     recs: list[dict] = []
     for it in soup.select(item_sel):
