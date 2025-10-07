@@ -85,8 +85,13 @@ def _compute_row_key(name: str, link: str, lab: str, html_frag: str, seq: str | 
 _JAPANESE_CHAR_RE = re.compile(r"[\u4E00-\u9FFF\u3040-\u30FF]")
 _LATIN_NAME_RE = re.compile(r"^[A-Za-zÀ-ÖØ-öø-ÿ][A-Za-zÀ-ÖØ-öø-ÿ'\-.]+(?: [A-Za-zÀ-ÖØ-öø-ÿ][A-Za-zÀ-ÖØ-öø-ÿ'\-.]+){0,3}$")
 _TITLE_TOKENS = {
-    "professor","associate","assistant","lecturer","prof","dr","mr","mrs","ms","phd","m.sc","msc","bsc","dphil",
-    "教授","准教授","助教","講師","先生",
+    # English/General
+    "professor","associate","assistant","lecturer","instructor","adjunct","visiting","emeritus","senior","junior",
+    "prof","dr","mr","mrs","ms","phd","m.sc","msc","bsc","dphil","postdoc","postdoctoral","researcher","fellow","scholar","faculty","staff",
+    # Japanese
+    "教授","准教授","助教","講師","先生","名誉教授","客員教授","特任教授","特任講師","特任助教","招へい教員","招聘教授",
+    "研究員","共同研究員","研究支援員","研究助手","助手","学振特別研究員","特別研究員",
+    "職員","教職員","事務職員","技術職員","技術補佐員","事務補佐員",
 }
 
 def _strip_titles(s: str) -> str:
@@ -125,7 +130,9 @@ def clean_person_name(s: str) -> str:
     return ""
 
 _INDIVIDUAL_URL_HINTS = (
-    "/faculty-member/","/r/lab/","/faculty/","/teacher/","/member/","/people/","/profile","/profiles/","/researcher",
+    "/faculty-member/","/r/lab/","/faculty/","/teacher/","/member/","/members/",
+    "/people/","/person/","/persons/","/profile","/profiles/","/researcher","/researchers/",
+    "/staff/","/directory/","/facultylist","/faculty-list",
 )
 
 def looks_individual_link(link: str, page_url: str) -> bool:
@@ -145,8 +152,12 @@ def looks_individual_link(link: str, page_url: str) -> bool:
     return any(h in u for h in _INDIVIDUAL_URL_HINTS)
 
 _TITLE_WORDS = [
-    "教授","准教授","助教","講師","教授（","特任教授","客員教授",
-    "Professor","Associate Professor","Assistant Professor","Lecturer"
+    # Japanese titles
+    "教授","准教授","助教","講師","名誉教授","特任教授","客員教授","特任講師","特任助教","招聘教授","招へい教員",
+    "研究員","共同研究員","特別研究員","研究支援員","研究助手","助手","教職員","職員","技術職員","事務職員","技術補佐員","事務補佐員",
+    # English titles
+    "Professor","Associate Professor","Assistant Professor","Adjunct Professor","Visiting Professor","Professor Emeritus",
+    "Lecturer","Senior Lecturer","Instructor","Research Fellow","Researcher","Senior Researcher","Postdoctoral Researcher","Postdoc","Visiting Scholar",
 ]
 
 def find_name_by_title(text: str) -> str:
