@@ -9,7 +9,7 @@ from .html_utils import safe_select_text_soup, safe_select_href_soup, is_effecti
 from .ocr_utils import enumerate_dom_items, run_ocr, extract_from_ocr_text, make_evidence_html, save_evidence, has_playwright, has_ocr
 from .normalize import normalize_name
 from bs4 import BeautifulSoup
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 import hashlib
 import time
 import re
@@ -22,9 +22,41 @@ COLUMNS = [
 
 DEFAULT_ITEM_SELECTORS = ['li', '.member', '.teacher', '.card', '.profile', '.item-faculty', '.faculty-member', 'article', '.entry', '.list-item', '.list-group-item', '.facultyList li']
 
+# Host adapters for URL/keyword heuristics
+def _load_adapters() -> dict:
+    p = Path("config/adapters.json")
+    if p.exists():
+        try:
+            return json.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            return {"default": {}}
+    return {"default": {}}
+
+_ADAPTERS = _load_adapters()
+
+def _adapter_for(host: str) -> dict:
+    base = _ADAPTERS.get("default", {})
+    spec = _ADAPTERS.get(host or "", {})
+    out = {}
+    out.update(base)
+    out.update(spec)
+    return out
+
+
+def _classify_page_type(html: str) -> str:
+    soup = BeautifulSoup(html, "lxml")
+    has_table = bool(soup.select_one("table th, table thead"))
+    has_cards = bool(soup.select_one(".card, .profile, .profile-card, .facultyCard, .teacher, .member, article, .entry"))
+    if has_table and not has_cards:
+        return "table"
+    if has_cards and not has_table:
+        return "cards"
+    return "list"
 
 def extract_by_type(html: str, page_type: str, selectors: dict):
-    pt = (page_type or "table").lower()
+    pt = (page_type or "auto").lower()
+    if pt == "auto":
+        pt = _classify_page_type(html)
     if pt == "table":
         return [{"name": n, "theme": t, "link": u} for n,t,u in parse_table(html, {"selectors": selectors})]
     if pt == "cards":
@@ -142,13 +174,24 @@ def looks_individual_link(link: str, page_url: str) -> bool:
     if u == page_url:
         return False
     try:
-        from urllib.parse import urlparse
         lp = urlparse(u)
         pu = urlparse(page_url)
         root = f"{pu.scheme}://{pu.netloc}/"
         if u == root:
             return False
         path = lp.path or ""
+        host = lp.hostname or pu.hostname or ""
+        # Adapter-driven rules first
+        ad = _adapter_for(host)
+        for gh in ad.get("generic_list_hints", []) or []:
+            if re.search(gh, path):
+                return False
+        for ex in ad.get("exclude_url_substrings", []) or []:
+            if ex in path:
+                return False
+        for pat in ad.get("personal_url_patterns", []) or []:
+            if re.search(pat, path, flags=re.IGNORECASE):
+                return True
         # Hokkaido fish: /faculty-member/<slug>
         if "/faculty-member/" in path:
             rest = path.split("/faculty-member/")[-1]
@@ -169,6 +212,20 @@ def looks_individual_link(link: str, page_url: str) -> bool:
         return any(h in u for h in _INDIVIDUAL_URL_HINTS)
     # hint-based fallback
     return any(h in u for h in _INDIVIDUAL_URL_HINTS)
+
+def looks_not_person_text(text: str, page_url: str) -> bool:
+    t = (text or "").strip()
+    if not t:
+        return False
+    try:
+        host = (urlparse(page_url).hostname or "")
+        ad = _adapter_for(host)
+        for kw in ad.get("exclude_text_keywords", []) or []:
+            if kw in t:
+                return True
+    except Exception:
+        return False
+    return False
 
 _TITLE_WORDS = [
     # Japanese titles
@@ -608,7 +665,8 @@ def run_target(t: dict) -> list[dict]:
         if not url:
             continue
         html = fetch_dynamic_html(url) if p.get("dynamic") else fetch_html(url)
-        rows = extract_by_type(html, p.get("page_type", "table"), p.get("selectors", {}))
+        # Auto classify when unspecified
+        rows = extract_by_type(html, p.get("page_type", "auto"), p.get("selectors", {}))
         run_id = os.environ.get("GITHUB_RUN_ID") or os.environ.get("RUN_ID") or today.replace("-", "")
         for r in rows:
             name_v = r.get("name", "")

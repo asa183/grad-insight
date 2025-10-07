@@ -1,0 +1,34 @@
+{
+  "_comment": "Host-specific adapters: personal URL patterns, exclude patterns, and default selectors. Extend incrementally.",
+  "default": {
+    "personal_url_patterns": [
+      "/people/", "/person/", "/profile/", "/profiles/", "/researcher/", "/researchers/",
+      "/faculty/([a-z0-9\-_%]+)/?$", "/faculty-member/", "/staff/([a-z0-9\-_%]+)/?$",
+      "/member/([a-z0-9\-_%]+)/?$", "/lab/([a-z0-9\-_%]+)/?$", "/u/[a-z0-9\-_%]+$"
+    ],
+    "generic_list_hints": [
+      "/faculty$", "/faculty/$", "/staff$", "/staff/$", "/members$", "/members/$",
+      "/teachers$", "/teachers/$", "/people$", "/people/$", "/profiles$", "/profiles/$"
+    ],
+    "exclude_url_substrings": [
+      "/genre_", "/category/", "/archive/", "/news/", "/topics/"
+    ],
+    "exclude_text_keywords": [
+      "ニュース", "お知らせ", "イベント", "カテゴリ", "カテゴリー", "アーカイブ", "募集"
+    ]
+  },
+  "www.fbc.keio.ac.jp": {
+    "personal_url_patterns": ["/graduate/([a-z]+)\\.html$", "/teacher/[a-z0-9\-_%]+$"],
+    "generic_list_hints": ["/graduate/", "/faculty/", "/member/"]
+  },
+  "www2.fish.hokudai.ac.jp": {
+    "personal_url_patterns": ["/faculty-member/[a-z0-9\-_%]+$"],
+    "exclude_url_substrings": ["/faculty-member/genre_"],
+    "generic_list_hints": ["/faculty$", "/faculty/"]
+  },
+  "www.agr.hokudai.ac.jp": {
+    "personal_url_patterns": ["/r/lab/[a-z0-9\-_%]+"],
+    "generic_list_hints": ["/r/lab$"]
+  }
+}
+
