@@ -1,6 +1,15 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 import argparse, os, json, sys, time
+from pathlib import Path
+
+# Ensure repository root is on sys.path so that `src` can be imported on CI
+try:
+    repo_root = Path(__file__).resolve().parents[1]
+    if str(repo_root) not in sys.path:
+        sys.path.insert(0, str(repo_root))
+except Exception:
+    pass
 from typing import List, Dict
 import requests
 
@@ -155,4 +164,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

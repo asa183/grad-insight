@@ -18,6 +18,7 @@ jobs:
     env:
       GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
       SHEET_ID: ${{ secrets.SHEET_ID }}
+      PYTHONPATH: ${{ github.workspace }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
