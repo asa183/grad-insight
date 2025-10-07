@@ -1,6 +1,7 @@
 from __future__ import annotations
 import os, re, datetime
 from typing import Optional, Tuple, Dict, List
+import time as _time
 
 def _has_module(name: str) -> bool:
     try:
@@ -37,7 +38,22 @@ def try_render_screenshot(url: str, dynamic: bool = False, wait_ms: int = 1500) 
     except Exception:
         return None
 
-def enumerate_dom_items(url: str, item_selectors: List[str], dynamic: bool = False, max_items: int = 80) -> List[Dict[str, str]]:
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, "").strip() or default)
+    except Exception:
+        return default
+
+def enumerate_dom_items(
+    url: str,
+    item_selectors: List[str],
+    dynamic: bool = False,
+    max_items: int = 80,
+    max_screenshots: int = 10,
+    nav_timeout_ms: int | None = None,
+    action_timeout_ms: int | None = None,
+    overall_timeout_ms: int | None = None,
+) -> List[Dict[str, str]]:
     """Enumerate DOM items by selectors, capturing outerHTML and per-item screenshots.
 
     Returns a list of dicts: {html, screenshot_path, seq}.
@@ -45,6 +61,18 @@ def enumerate_dom_items(url: str, item_selectors: List[str], dynamic: bool = Fal
     """
     if not _has_module("playwright"):
         return []
+    # resolve limits from env if not provided
+    if max_items is None:
+        max_items = _env_int("EX_ENUM_MAX_ITEMS", 80)
+    if max_screenshots is None:
+        max_screenshots = _env_int("EX_ENUM_MAX_SHOTS", 8)
+    if nav_timeout_ms is None:
+        nav_timeout_ms = _env_int("EX_NAV_TIMEOUT_MS", 15000)
+    if action_timeout_ms is None:
+        action_timeout_ms = _env_int("EX_ACTION_TIMEOUT_MS", 5000)
+    if overall_timeout_ms is None:
+        overall_timeout_ms = _env_int("EX_ENUM_TIMEOUT_MS", 120000)
+
     items: List[Dict[str, str]] = []
     try:
         from playwright.sync_api import sync_playwright  # type: ignore
@@ -52,6 +80,11 @@ def enumerate_dom_items(url: str, item_selectors: List[str], dynamic: bool = Fal
         with sync_playwright() as p:
             browser = p.chromium.launch()
             page = browser.new_page(viewport={"width": 1280, "height": 2000})
+            try:
+                page.set_default_navigation_timeout(nav_timeout_ms)
+                page.set_default_timeout(action_timeout_ms)
+            except Exception:
+                pass
             page.goto(url, wait_until="networkidle")
             if dynamic:
                 sleep(1.0)
@@ -60,13 +93,22 @@ def enumerate_dom_items(url: str, item_selectors: List[str], dynamic: bool = Fal
 
             seen_html = set()
             seq = 1
+            shots = 0
+            start_ts = _time.time()
             for sel in item_selectors or []:
                 try:
                     handles = page.query_selector_all(sel)
                 except Exception:
                     handles = []
+                # light progress
+                try:
+                    print(f"INFO enum: sel={sel} found={len(handles)} collected={len(items)} shots={shots}")
+                except Exception:
+                    pass
                 for h in handles:
                     if len(items) >= max_items:
+                        break
+                    if (_time.time() - start_ts) * 1000 >= overall_timeout_ms:
                         break
                     try:
                         html = h.evaluate("el => el.outerHTML") or ""
@@ -76,15 +118,21 @@ def enumerate_dom_items(url: str, item_selectors: List[str], dynamic: bool = Fal
                         continue
                     seen_html.add(html)
                     # Save per-item screenshot (best-effort)
-                    shot_name = f"item_{int(datetime.datetime.now().timestamp())}_{seq}.png"
-                    shot_path = os.path.join(out_dir, shot_name)
-                    try:
-                        h.screenshot(path=shot_path)
-                    except Exception:
-                        shot_path = ""
+                    shot_path = ""
+                    if shots < max_screenshots:
+                        shot_name = f"item_{int(datetime.datetime.now().timestamp())}_{seq}.png"
+                        shot_path_tmp = os.path.join(out_dir, shot_name)
+                        try:
+                            h.screenshot(path=shot_path_tmp, timeout=action_timeout_ms)
+                            shot_path = shot_path_tmp
+                            shots += 1
+                        except Exception:
+                            shot_path = ""
                     items.append({"html": html, "screenshot_path": shot_path, "seq": str(seq)})
                     seq += 1
                 if len(items) >= max_items:
+                    break
+                if (_time.time() - start_ts) * 1000 >= overall_timeout_ms:
                     break
             browser.close()
     except Exception:

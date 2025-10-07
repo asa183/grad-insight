@@ -128,8 +128,18 @@ def run_target(t: dict) -> list[dict]:
                     item_selectors = [".facultyList li", ".member", ".teacher", ".card"] + item_selectors
                 if host == "www.agr.hokudai.ac.jp":
                     item_selectors = [".profile", ".card", "article", ".entry", "li"] + item_selectors
-                dom_items = enumerate_dom_items(url, item_selectors, dynamic=bool(t.get("dynamic")))
-                print(f"INFO examples id={t.get('id','')}: dom_items={len(dom_items)} selectors_tried={len(item_selectors)}")
+                # limits from env
+                import os as _os
+                max_items_env = int(_os.environ.get("EX_ENUM_MAX_ITEMS", "80") or 80)
+                max_shots_env = int(_os.environ.get("EX_ENUM_MAX_SHOTS", "8") or 8)
+                dom_items = enumerate_dom_items(
+                    url,
+                    item_selectors,
+                    dynamic=bool(t.get("dynamic")),
+                    max_items=max_items_env,
+                    max_screenshots=max_shots_env,
+                )
+                print(f"INFO examples id={t.get('id','')}: dom_items={len(dom_items)} selectors_tried={len(item_selectors)} max_items={max_items_env} max_shots={max_shots_env}")
             except Exception:
                 dom_items = []
             if not dom_items:

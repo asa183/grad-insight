@@ -40,8 +40,14 @@ jobs:
           sudo apt-get install -y tesseract-ocr || true
           python -m pip install --quiet pillow pytesseract || true
       - name: Extract from examples (selectors-driven)
+        env:
+          EX_ENUM_MAX_ITEMS: "60"
+          EX_ENUM_MAX_SHOTS: "6"
+          EX_ENUM_TIMEOUT_MS: "120000"
+          EX_NAV_TIMEOUT_MS: "15000"
+          EX_ACTION_TIMEOUT_MS: "5000"
         run: |
-          python -m src.run_extract config/examples_targets.json
+          python -u -m src.run_extract config/examples_targets.json
       - name: Debug CSV outputs
         run: |
           ls -1 *.csv || true
