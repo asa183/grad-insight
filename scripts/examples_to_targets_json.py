@@ -50,7 +50,11 @@ for r in rows:
     page_type = (r.get("ページ種別", "") or "").strip().lower() or None
     selectors = {}
     if r.get("抽出単位（list用）"):
-        selectors["item_selector"] = r.get("抽出単位（list用）").strip()
+        sel_val = r.get("抽出単位（list用）").strip()
+        selectors["item_selector"] = sel_val
+        # ページ種別がcardsのときはカードのCSSとしても流用
+        if (r.get("ページ種別", "") or "").strip().lower() == "cards":
+            selectors["card_selector"] = sel_val
     if r.get("研究室名称（JP）の場所（CSS）"):
         selectors["lab_selector"] = r.get("研究室名称（JP）の場所（CSS）").strip()
     if r.get("教授名（JP）の場所（CSS）"):

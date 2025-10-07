@@ -12,6 +12,7 @@ from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 import hashlib
 import time
+import re
 
 COLUMNS = [
     "大学名","研究科","専攻名","氏名（漢字）",
@@ -81,6 +82,69 @@ def _compute_row_key(name: str, link: str, lab: str, html_frag: str, seq: str | 
     return f"anon:{seq or ''}"
 
 
+_JAPANESE_CHAR_RE = re.compile(r"[\u4E00-\u9FFF\u3040-\u30FF]")
+_LATIN_NAME_RE = re.compile(r"^[A-Za-zÀ-ÖØ-öø-ÿ][A-Za-zÀ-ÖØ-öø-ÿ'\-.]+(?: [A-Za-zÀ-ÖØ-öø-ÿ][A-Za-zÀ-ÖØ-öø-ÿ'\-.]+){0,3}$")
+_TITLE_TOKENS = {
+    "professor","associate","assistant","lecturer","prof","dr","mr","mrs","ms","phd","m.sc","msc","bsc","dphil",
+    "教授","准教授","助教","講師","先生",
+}
+
+def _strip_titles(s: str) -> str:
+    t = (s or "").strip()
+    t = re.sub(r"\s+", " ", t)
+    parts = [p for p in re.split(r"[|／/｜]| - | – | — |,", t) if p]
+    if parts:
+        t = parts[0].strip()
+    toks = t.replace(".", " ").split()
+    toks = [w for w in toks if w.lower() not in _TITLE_TOKENS]
+    return " ".join(toks).strip()
+
+def clean_person_name(s: str) -> str:
+    s = (s or "").strip()
+    if not s:
+        return ""
+    s = re.sub(r"\s+", " ", s)
+    if len(s) > 64:
+        return ""
+    if any(x in s for x in ("http://","https://","@")):
+        return ""
+    cand = _strip_titles(s)
+    cand = re.sub(r"\s*\(.*?\)\s*", "", cand).strip()
+    if _JAPANESE_CHAR_RE.search(cand):
+        # Japanese-like if it contains JP chars and not too many delimiters
+        if len(cand) >= 2:
+            return cand
+        return ""
+    # Latin-like
+    if _LATIN_NAME_RE.match(cand):
+        return cand
+    # Heuristic: 2-4 words, letters/hyphen/apostrophe only
+    ws = cand.split()
+    if 1 <= len(ws) <= 4 and all(re.match(r"^[A-Za-zÀ-ÖØ-öø-ÿ'\-]+$", w) for w in ws):
+        return cand
+    return ""
+
+_INDIVIDUAL_URL_HINTS = (
+    "/faculty-member/","/r/lab/","/faculty/","/teacher/","/member/","/people/","/profile","/profiles/","/researcher",
+)
+
+def looks_individual_link(link: str, page_url: str) -> bool:
+    u = (link or "").strip()
+    if not u:
+        return False
+    if u == page_url:
+        return False
+    try:
+        from urllib.parse import urlparse
+        pu = urlparse(page_url)
+        root = f"{pu.scheme}://{pu.netloc}/"
+        if u == root:
+            return False
+    except Exception:
+        pass
+    return any(h in u for h in _INDIVIDUAL_URL_HINTS)
+
+
 def run_target(t: dict) -> list[dict]:
     uni, grad, major = t.get("university", ""), t.get("graduate_school", ""), t.get("major", "")
     merged: dict[str, dict] = {}
@@ -132,7 +196,7 @@ def run_target(t: dict) -> list[dict]:
         html = ""
         dom_items = []
         # metrics & diagnostics
-        drops = {"no_name_link": 0, "dup_key": 0}
+        drops = {"no_name_link": 0, "dup_key": 0, "not_person": 0}
         merge_count = {"link": 0, "name+lab": 0, "name": 0, "frag": 0, "anon": 0}
         ts_fetch_start = time.time()
         # Always fetch/scan page info when URL is provided, even if fixed values are complete.
@@ -183,21 +247,28 @@ def run_target(t: dict) -> list[dict]:
             except Exception:
                 dom_items = []
         ts_fetch_end = time.time()
-        if not dom_items:
-            if sel.get('item_selector') or any(sel.get(x) for x in ('lab_selector','name_selector','theme_selector','link_selector','tag_selector')):
-                rows_css = extract_list_page(html, url, sel)
-            try:
-                rows_fb_list = [{"lab":"","name": r.get("name",""), "theme": r.get("theme",""), "link": r.get("link",""), "tag":""} for r in parse_list(html, {"selectors": {}})]
-            except Exception:
-                rows_fb_list = []
-            try:
-                rows_fb_cards = [{"lab":"","name": r.get("name",""), "theme": r.get("theme",""), "link": r.get("link",""), "tag":""} for r in parse_cards(html, {"selectors": {}})]
-            except Exception:
-                rows_fb_cards = []
-            try:
-                rows_fb_tr = [{"lab":"","name": r.get("name",""), "theme": r.get("theme",""), "link": r.get("link",""), "tag":""} for r in parse_list(html, {"selectors": {"item_selector": "tr"}})]
-            except Exception:
-                rows_fb_tr = []
+            if not dom_items:
+                pt = (t.get("page_type") or "").lower()
+                if pt == "cards" or sel.get('card_selector'):
+                    try:
+                        rows_css_cards = [{"lab":"","name": r.get("name",""), "theme": r.get("theme",""), "link": urljoin(url, r.get("link","")) if r.get("link") else "", "tag":""} for r in parse_cards(html, {"selectors": sel})]
+                    except Exception:
+                        rows_css_cards = []
+                    rows_css = rows_css_cards
+                elif sel.get('item_selector') or any(sel.get(x) for x in ('lab_selector','name_selector','theme_selector','link_selector','tag_selector')):
+                    rows_css = extract_list_page(html, url, sel)
+                try:
+                    rows_fb_list = [{"lab":"","name": r.get("name",""), "theme": r.get("theme",""), "link": urljoin(url, r.get("link","")) if r.get("link") else "", "tag":""} for r in parse_list(html, {"selectors": {}})]
+                except Exception:
+                    rows_fb_list = []
+                try:
+                    rows_fb_cards = [{"lab":"","name": r.get("name",""), "theme": r.get("theme",""), "link": urljoin(url, r.get("link","")) if r.get("link") else "", "tag":""} for r in parse_cards(html, {"selectors": {}})]
+                except Exception:
+                    rows_fb_cards = []
+                try:
+                    rows_fb_tr = [{"lab":"","name": r.get("name",""), "theme": r.get("theme",""), "link": urljoin(url, r.get("link","")) if r.get("link") else "", "tag":""} for r in parse_list(html, {"selectors": {"item_selector": "tr"}})]
+                except Exception:
+                    rows_fb_tr = []
             rows_fb = rows_fb_list + rows_fb_cards + rows_fb_tr
         # build base rows
         if dom_items:
@@ -294,6 +365,10 @@ def run_target(t: dict) -> list[dict]:
                 link_val = (ocr_values["link"] or css_values["link"]) or link_base or f.get("link") or ""
                 lab_val = lab_base or f.get("lab") or ""
                 tag_val = tag_base or f.get("tag") or ""
+            # Person name cleaning (loose, multilingual)
+            cleaned_name = clean_person_name(name_val)
+            if cleaned_name:
+                name_val = cleaned_name
             if not f.get("name") and name_val and os.environ.get("EXAMPLES_NORMALIZE_NAME", "0") in ("1","true","TRUE"):
                 name_val = normalize_name(name_val) or name_val
             if not f.get("theme") and theme_val:
@@ -329,6 +404,10 @@ def run_target(t: dict) -> list[dict]:
             if not single_mode:
                 if not (name_val or link_val):
                     drops["no_name_link"] += 1
+                    continue
+                # If name doesn't look like a person and link not individual-like, drop
+                if not clean_person_name(name_val) and not looks_individual_link(link_val, url):
+                    drops["not_person"] += 1
                     continue
             # If single mode, filter rows by fixed name/link when available
             if single_mode:
