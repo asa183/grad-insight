@@ -111,8 +111,33 @@ def enumerate_dom_items(
                         break
                     if (_time.time() - start_ts) * 1000 >= overall_timeout_ms:
                         break
+                    # Choose target element: escalate narrow name-part elements to closest container block
+                    target = h
                     try:
-                        html = h.evaluate("el => el.outerHTML") or ""
+                        cls = (h.get_attribute("class") or "").lower()
+                    except Exception:
+                        cls = ""
+                    try:
+                        inner_txt = h.evaluate("el => (el.innerText||'').trim()") or ""
+                    except Exception:
+                        inner_txt = ""
+                    try:
+                        has_nameish_class = any(k in cls for k in ("family", "given", "surname", "first", "last", "name"))
+                    except Exception:
+                        has_nameish_class = False
+                    is_narrow = False
+                    try:
+                        box = h.bounding_box() or {"width": 0, "height": 0}
+                        is_small_box = box.get("width", 0) < 160 or box.get("height", 0) < 50
+                    except Exception:
+                        is_small_box = False
+                    if (len(inner_txt) <= 4) or has_nameish_class or is_small_box:
+                        try:
+                            target = h.evaluate_handle("el => el.closest('li, article, .card, .member, .teacher, .profile, .faculty-member, .item-faculty, .entry') || el")
+                        except Exception:
+                            target = h
+                    try:
+                        html = target.evaluate("el => el.outerHTML") or ""
                     except Exception:
                         html = ""
                     if not html or html in seen_html:
@@ -124,7 +149,7 @@ def enumerate_dom_items(
                         shot_name = f"item_{int(datetime.datetime.now().timestamp())}_{seq}.png"
                         shot_path_tmp = os.path.join(out_dir, shot_name)
                         try:
-                            h.screenshot(path=shot_path_tmp, timeout=action_timeout_ms)
+                            target.screenshot(path=shot_path_tmp, timeout=action_timeout_ms)
                             shot_path = shot_path_tmp
                             shots += 1
                         except Exception:
