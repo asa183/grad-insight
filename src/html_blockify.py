@@ -1,7 +1,7 @@
 from __future__ import annotations
 import re
 from typing import List, Dict, Tuple, Optional
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 try:
     from selectolax.parser import HTMLParser, Node
@@ -208,6 +208,82 @@ def blockify_html(url: str, html: str, max_blocks: int = 300, golden: Optional[D
     root = tree.body or tree
     _remove_unwanted(root)
     _make_absolute(root, base_url)
+
+    # Host-specific: Hokkaido fish faculty listing (per-professor blocks)
+    try:
+        pu = urlparse(url)
+        if (pu.hostname or "") == "www2.fish.hokudai.ac.jp" and "/faculty-member" in (pu.path or ""):
+            rows: List[Dict[str, str]] = []
+            bid = 0
+            # find all dd under dl.faculty-member that contain personal links
+            for dl in root.css("dl.faculty-member"):
+                # iterate children to preserve dt/dd pairing
+                prev = None
+                c = dl.child
+                while c is not None:
+                    if getattr(c, "tag", None) == "dd":
+                        # check for personal link under dd
+                        has_person_link = False
+                        try:
+                            for a in c.css("a"):
+                                href = a.attributes.get("href") or ""
+                                if "/faculty-member/" in href and not href.endswith("/faculty-member/"):
+                                    has_person_link = True; break
+                        except Exception:
+                            pass
+                        if has_person_link:
+                            bid += 1
+                            tag = c.tag.upper()
+                            # depth
+                            depth = 0
+                            p = c
+                            while p is not None:
+                                depth += 1
+                                p = getattr(p, "parent", None)
+                            # has_img: from paired dt or within dd
+                            has_img = False
+                            try:
+                                if prev is not None and getattr(prev, "tag", None) == "dt":
+                                    for im in prev.css("img"):
+                                        has_img = True; break
+                            except Exception:
+                                has_img = False
+                            if not has_img:
+                                try:
+                                    has_img = any(True for _ in c.css("img"))
+                                except Exception:
+                                    has_img = False
+                            path = _css_path(c)
+                            # links
+                            links = []
+                            try:
+                                for a in c.css("a"):
+                                    href = a.attributes.get("href") or ""
+                                    txt = a.text() or ""
+                                    if href:
+                                        links.append({"href": href, "text": re.sub(r"\s+", " ", txt).strip()})
+                            except Exception:
+                                pass
+                            try:
+                                text_v = _text_with_breaks_sel(c)
+                            except Exception:
+                                text_v = c.text() or ""
+                            rows.append({
+                                "block_id": str(bid),
+                                "tag": tag,
+                                "depth": str(depth),
+                                "group_id": "hokudai-fish",
+                                "path": path,
+                                "has_img": "TRUE" if has_img else "FALSE",
+                                "text": text_v[:45000],
+                                "links_json": json_dumps_safe(links),
+                            })
+                    prev = c
+                    c = getattr(c, "next", None)
+            if rows:
+                return rows[:max_blocks]
+    except Exception:
+        pass
 
     # gather blocks
     nodes: List[Node] = []
