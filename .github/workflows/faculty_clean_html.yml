@@ -1,0 +1,30 @@
+name: Faculty Profiles Clean HTML
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  run:
+    runs-on: ubuntu-22.04
+    env:
+      GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+      SHEET_ID: ${{ secrets.SHEET_ID }}
+      SHEET_NAME: Examples
+      DRIVE_FOLDER_ID: 1zTJebULG9Og1OjwnEQp0YZx7PXeCjMpp
+      CONCURRENCY: '3'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: grad-insight/tools/faculty-cleaner/package.json
+      - name: Install
+        working-directory: grad-insight/tools/faculty-cleaner
+        run: npm install --no-audit --no-fund
+      - name: Build
+        working-directory: grad-insight/tools/faculty-cleaner
+        run: npm run build
+      - name: Run Sheet → Drive
+        working-directory: grad-insight/tools/faculty-cleaner
+        run: npm run run:sheet
