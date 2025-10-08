@@ -45,10 +45,10 @@ jobs:
             echo "Input not found: $INPUT_PATH"; ls -la ../..;
             echo "Creating fallback ../../urls.csv"
             cat > ../../urls.csv << 'CSV'
-url
-https://www.agr.hokudai.ac.jp/r/faculty
-https://www.edu.hokudai.ac.jp/graduate_school/department/academic/
-CSV
+            url
+            https://www.agr.hokudai.ac.jp/r/faculty
+            https://www.edu.hokudai.ac.jp/graduate_school/department/academic/
+            CSV
             INPUT_PATH=../../urls.csv
           fi
           node dist/grab.js \
