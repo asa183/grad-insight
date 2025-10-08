@@ -45,14 +45,16 @@ async function jitter(page: Page) { await page.waitForTimeout(rand(120, 380)); }
 async function gentleBottomScroll(page: Page, rounds = 10) {
   await page.evaluate(async (n) => {
     const sleep = (ms:number)=>new Promise(r=>setTimeout(r,ms));
-    const getDoc = () => (document.scrollingElement || document.documentElement || document.body) as HTMLElement | null;
+    const getDoc = () => (document.scrollingElement || document.documentElement || document.body) as (HTMLElement | null);
     let last = 0;
     for (let i=0; i<n; i++) {
-      const doc = getDoc();
-      const h = doc ? doc.scrollHeight : (document.body ? document.body.scrollHeight : 0);
-      window.scrollTo(0, Math.max(0, h - (i*50)));
+      const doc1 = getDoc();
+      if (!doc1) break;
+      const h1 = doc1.scrollHeight || 0;
+      window.scrollTo(0, Math.max(0, h1 - (i*50)));
       await sleep(250 + Math.random()*200);
-      const h2 = (getDoc() ? getDoc()!.scrollHeight : (document.body ? document.body.scrollHeight : 0));
+      const doc2 = getDoc();
+      const h2 = doc2 ? (doc2.scrollHeight || 0) : 0;
       if (h2 === last) break; last = h2;
     }
   }, rounds);
