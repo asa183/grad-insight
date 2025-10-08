@@ -52,19 +52,23 @@ async function getAuth() {
 }
 
 async function ensureAnyoneReader(drive: any, fileId: string) {
-  try { await drive.permissions.create({ fileId, requestBody: { type: 'anyone', role: 'reader' } }); } catch (e: any) { if (e?.response?.status !== 400) console.warn('permission warn:', e?.message || e); }
+  try {
+    await drive.permissions.create({ fileId, requestBody: { type: 'anyone', role: 'reader' }, supportsAllDrives: true });
+  } catch (e: any) {
+    if (e?.response?.status !== 400) console.warn('permission warn:', e?.message || e);
+  }
 }
 
 async function uploadOrUpdateHtml(drive: any, name: string, html: string, existingId?: string): Promise<{ id: string, webViewLink?: string }>
 {
   if (existingId) {
-    await drive.files.update({ fileId: existingId, media: { mimeType: 'text/html', body: html } });
-    const meta = await drive.files.get({ fileId: existingId, fields: 'id, webViewLink' });
+    await drive.files.update({ fileId: existingId, media: { mimeType: 'text/html', body: html }, supportsAllDrives: true });
+    const meta = await drive.files.get({ fileId: existingId, fields: 'id, webViewLink', supportsAllDrives: true });
     return { id: meta.data.id as string, webViewLink: meta.data.webViewLink };
   }
-  const created = await drive.files.create({ requestBody: { name, parents: [DRIVE_FOLDER_ID], mimeType: 'text/html' }, media: { mimeType: 'text/html', body: html }, fields: 'id, webViewLink' });
+  const created = await drive.files.create({ requestBody: { name, parents: [DRIVE_FOLDER_ID], mimeType: 'text/html' }, media: { mimeType: 'text/html', body: html }, fields: 'id, webViewLink', supportsAllDrives: true });
   const id = created.data.id as string; await ensureAnyoneReader(drive, id);
-  const meta = await drive.files.get({ fileId: id, fields: 'id, webViewLink' });
+  const meta = await drive.files.get({ fileId: id, fields: 'id, webViewLink', supportsAllDrives: true });
   return { id: meta.data.id as string, webViewLink: meta.data.webViewLink };
 }
 
