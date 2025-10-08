@@ -6,6 +6,9 @@ const SHEET_NAME = process.env.SHEET_NAME || 'Examples';
 const DRIVE_FOLDER_ID = process.env.DRIVE_FOLDER_ID || '';
 const CONCURRENCY = Number(process.env.CONCURRENCY || '3');
 const GOOGLE_CREDENTIALS_JSON = process.env.GOOGLE_CREDENTIALS_JSON;
+const OAUTH_CLIENT_ID = process.env.OAUTH_CLIENT_ID;
+const OAUTH_CLIENT_SECRET = process.env.OAUTH_CLIENT_SECRET;
+const OAUTH_REFRESH_TOKEN = process.env.OAUTH_REFRESH_TOKEN;
 if (!SHEET_ID) {
     console.error('SHEET_ID is required');
     process.exit(2);
@@ -46,11 +49,23 @@ async function fetchHtml(url, timeoutMs = 15000) {
     }
 }
 async function getAuth() {
+    // Prefer explicit OAuth2 (for personal accounts / My Drive)
+    if (OAUTH_CLIENT_ID && OAUTH_CLIENT_SECRET && OAUTH_REFRESH_TOKEN) {
+        const oauth2 = new google.auth.OAuth2({
+            clientId: OAUTH_CLIENT_ID,
+            clientSecret: OAUTH_CLIENT_SECRET,
+            redirectUri: 'urn:ietf:wg:oauth:2.0:oob',
+        });
+        oauth2.setCredentials({ refresh_token: OAUTH_REFRESH_TOKEN });
+        return oauth2;
+    }
+    // Service Account (requires Shared Drive)
     if (GOOGLE_CREDENTIALS_JSON) {
         const creds = JSON.parse(GOOGLE_CREDENTIALS_JSON);
         const auth = new google.auth.GoogleAuth({ credentials: creds, scopes: ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive'] });
         return await auth.getClient();
     }
+    // ADC fallback
     return await google.auth.getClient({ scopes: ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive'] });
 }
 async function ensureAnyoneReader(drive, fileId) {
