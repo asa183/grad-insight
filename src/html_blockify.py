@@ -303,7 +303,7 @@ def blockify_html(url: str, html: str, max_blocks: int = 300, golden: Optional[D
                 try:
                     txt_li = li.text() or ''
                     tl = len(txt_li)
-                    if tl < 10 or tl > 8000:
+                    if tl < TEXT_MIN or tl > TEXT_MAX:
                         continue
                     lc = count_lab_links(li)
                     has_role = _has_role_text(txt_li)
@@ -320,8 +320,16 @@ def blockify_html(url: str, html: str, max_blocks: int = 300, golden: Optional[D
                     continue
                 # use this li as block
                 use = li
+                # unique key by first lab link when available
+                key = None
+                try:
+                    first_lab = next((a for a in use.css('a') if '/r/lab/' in (a.attributes.get('href') or '')), None)
+                    if first_lab is not None:
+                        key = first_lab.attributes.get('href') or None
+                except Exception:
+                    key = None
                 path = _css_path(use)
-                key = path
+                key = key or path
                 if key in seen_keys:
                     continue
                 seen_keys.add(key)
@@ -360,7 +368,7 @@ def blockify_html(url: str, html: str, max_blocks: int = 300, golden: Optional[D
                     "group_id": "hokudai-agr",
                     "path": path,
                     "has_img": "TRUE" if has_img else "FALSE",
-                    "text": text_v[:45000],
+                    "text": text_v[:TEXT_MAX],
                     "links_json": json_dumps_safe(links),
                 })
                 if len(rows) >= max_blocks:
@@ -374,7 +382,7 @@ def blockify_html(url: str, html: str, max_blocks: int = 300, golden: Optional[D
                             if not _has_role_text(txt):
                                 continue
                             tl = len(txt)
-                            if tl < 10 or tl > 8000:
+                            if tl < TEXT_MIN or tl > TEXT_MAX:
                                 continue
                         except Exception:
                             continue
@@ -415,7 +423,7 @@ def blockify_html(url: str, html: str, max_blocks: int = 300, golden: Optional[D
                             "group_id": "hokudai-agr",
                             "path": path,
                             "has_img": "TRUE" if has_img else "FALSE",
-                            "text": text_v[:45000],
+                            "text": text_v[:TEXT_MAX],
                             "links_json": json_dumps_safe(links),
                         })
                         if len(rows) >= max_blocks:
