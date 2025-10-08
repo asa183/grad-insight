@@ -45,12 +45,15 @@ async function jitter(page: Page) { await page.waitForTimeout(rand(120, 380)); }
 async function gentleBottomScroll(page: Page, rounds = 10) {
   await page.evaluate(async (n) => {
     const sleep = (ms:number)=>new Promise(r=>setTimeout(r,ms));
+    const getDoc = () => (document.scrollingElement || document.documentElement || document.body) as HTMLElement | null;
     let last = 0;
     for (let i=0; i<n; i++) {
-      window.scrollTo(0, Math.max(0, document.body.scrollHeight - (i*50)));
+      const doc = getDoc();
+      const h = doc ? doc.scrollHeight : (document.body ? document.body.scrollHeight : 0);
+      window.scrollTo(0, Math.max(0, h - (i*50)));
       await sleep(250 + Math.random()*200);
-      const h = document.body.scrollHeight;
-      if (h === last) break; last = h;
+      const h2 = (getDoc() ? getDoc()!.scrollHeight : (document.body ? document.body.scrollHeight : 0));
+      if (h2 === last) break; last = h2;
     }
   }, rounds);
 }
@@ -112,7 +115,10 @@ async function processOne(row: InputRow, outDir: string, timeout: number, slowmo
     attempts++;
     try {
       await page.goto(url, { waitUntil: 'domcontentloaded', timeout });
-      await page.waitForSelector('main', { timeout });
+      // Ensure document is ready
+      await page.waitForFunction(() => !!document.body, { timeout });
+      // Try to ensure <main> if present, but don't fail hard
+      try { await page.waitForSelector('main', { timeout: Math.min(timeout, 15000) }); } catch {}
 
       // Generic tab/accordion click
       await page.evaluate(() => {
@@ -160,8 +166,8 @@ async function processOne(row: InputRow, outDir: string, timeout: number, slowmo
 
       // Extract main.outerHTML
       html = await page.evaluate(() => {
-        const node = document.querySelector('main') ?? document.body;
-        return (node as HTMLElement).outerHTML;
+        const node = (document.querySelector('main') ?? document.body) as HTMLElement | null;
+        return node ? node.outerHTML : '<body></body>';
       });
 
       // Quick metrics
@@ -262,22 +268,24 @@ async function processOne(row: InputRow, outDir: string, timeout: number, slowmo
     };
     await fs.writeJson(metaPath, meta, { spaces: 2 });
     console.error(`FAIL ${url} attempts=${attempts} err=${(lastErr && (lastErr.message || String(lastErr)))}`);
-    process.exitCode = 1;
   }
+  return ok;
 }
 
 (async () => {
   const rows = await parseInput(argv.input);
   await fs.ensureDir(argv.out);
 
-  // concurrency pool
+  let successCount = 0;
   const pool = Array.from({ length: Math.max(1, argv.concurrency) }, () => Promise.resolve());
   let i = 0;
-  const next = async () => {
+  const next = async (): Promise<void> => {
     const row = rows[i++];
     if (!row) return;
-    await processOne(row, argv.out, argv.timeout, argv.slowmo, argv.headful, argv.site as any, argv.screenshot);
+    const ok = await processOne(row, argv.out, argv.timeout, argv.slowmo, argv.headful, argv.site as any, argv.screenshot);
+    if (ok) successCount++;
     return next();
   };
   await Promise.all(pool.map(() => next()));
+  if (successCount === 0) process.exit(1);
 })();
