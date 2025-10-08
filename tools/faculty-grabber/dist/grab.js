@@ -62,17 +62,52 @@ async function gentleBottomScroll(page, rounds = 10) {
     }, rounds);
 }
 async function waitNamesVisible(page, site, timeout) {
+    const maxWait = Math.max(20000, Math.min(timeout, 60000));
+    const hasHanOrKana = () => {
+        const els = Array.from((document.querySelector('main') ?? document.body).querySelectorAll('*'));
+        for (const el of els) {
+            const s = (el.innerText || '').replace(/\s+/g, '').slice(0, 50);
+            if (/[\p{sc=Han}]{2,}/u.test(s) || /[\p{sc=Katakana}・ー]{2,}/u.test(s))
+                return true;
+        }
+        return false;
+    };
     if (site === 'edu') {
         await page.waitForFunction(() => {
-            const nodes = Array.from(document.querySelectorAll('.intro-section .name, dt.name, .m-name'));
-            return nodes.some(n => n.innerText.trim().length >= 2);
-        }, { timeout: Math.max(15000, Math.min(timeout, 40000)) });
+            if (document.querySelector('.intro-section .name, dt.name, .m-name')) {
+                const nodes = Array.from(document.querySelectorAll('.intro-section .name, dt.name, .m-name'));
+                if (nodes.some(n => n.innerText.trim().length >= 2))
+                    return true;
+            }
+            return (() => {
+                const root = (document.querySelector('main') ?? document.body);
+                const els = Array.from(root.querySelectorAll('*'));
+                for (const el of els) {
+                    const s = (el.innerText || '').replace(/\s+/g, '');
+                    if (/[\p{sc=Han}]{2,}/u.test(s) || /[\p{sc=Katakana}・ー]{2,}/u.test(s))
+                        return true;
+                }
+                return false;
+            })();
+        }, { timeout: maxWait });
     }
     if (site === 'agr') {
         await page.waitForFunction(() => {
+            if (Array.from(document.querySelectorAll('a')).some(a => a.href.includes('/r/lab/')))
+                return true;
             const nodes = Array.from(document.querySelectorAll('.list-item-faculty .name, .item-faculty .name'));
-            return nodes.some(n => n.innerText.trim().length >= 2);
-        }, { timeout: Math.max(15000, Math.min(timeout, 40000)) });
+            if (nodes.some(n => n.innerText.trim().length >= 2))
+                return true;
+            // fallback to Han/Kana scan
+            const root = (document.querySelector('main') ?? document.body);
+            const els = Array.from(root.querySelectorAll('*'));
+            for (const el of els) {
+                const s = (el.innerText || '').replace(/\s+/g, '');
+                if (/[\p{sc=Han}]{2,}/u.test(s) || /[\p{sc=Katakana}・ー]{2,}/u.test(s))
+                    return true;
+            }
+            return false;
+        }, { timeout: maxWait });
     }
 }
 async function processOne(row, outDir, timeout, slowmo, headful, sitePref, screenshot) {
@@ -208,13 +243,13 @@ async function processOne(row, outDir, timeout, slowmo, headful, sitePref, scree
                     textCandidates,
                 };
             });
-            // Post-check minimum signals
-            const namesOk = (site === 'law') ? true : true; // already waited above for CSR sites
+            // Post-check minimum signals (relaxed OR conditions for robustness)
             const anchorsOk = (metrics.staff >= 1 || metrics.rlab >= 1);
             const textOk = metrics.textCandidates >= 10;
-            if (!(namesOk && anchorsOk && textOk)) {
+            const imgsOk = metrics.imgs >= 1;
+            const okAny = anchorsOk || textOk || (imgsOk && metrics.textCandidates >= 6);
+            if (!okAny)
                 throw new Error('Post-check failed: insufficient signals');
-            }
             ok = true;
         }
         catch (e) {
