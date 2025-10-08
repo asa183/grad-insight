@@ -46,11 +46,11 @@ jobs:
           if [ "${INPUT_PATH#http}" = "$INPUT_PATH" ] && [ ! -f "$INPUT_PATH" ]; then
             echo "Input not found: $INPUT_PATH"; ls -la ../..;
             echo "Creating fallback ../../urls.csv"
-            cat > ../../urls.csv << 'CSV'
-            url
-            https://www.agr.hokudai.ac.jp/r/faculty
-            https://www.edu.hokudai.ac.jp/graduate_school/department/academic/
-            CSV
+            {
+              echo "url";
+              echo "https://www.agr.hokudai.ac.jp/r/faculty";
+              echo "https://www.edu.hokudai.ac.jp/graduate_school/department/academic/";
+            } > ../../urls.csv
             INPUT_PATH=../../urls.csv
           fi
           mkdir -p ../../captures
