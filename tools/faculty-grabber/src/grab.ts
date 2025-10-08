@@ -211,6 +211,9 @@ async function processOne(row: InputRow, outDir: string, timeout: number, slowmo
             const t = (el.innerText || '').replace(/\s+/g,' ').trim();
             return vis && t.length >= 20;
           }).length;
+        const allText = (document.body?.innerText || '').replace(/\s+/g,'');
+        const hasHan = /[\p{sc=Han}]{2,}/u.test(allText);
+        const hasKana = /[\p{sc=Katakana}・ー]{2,}/u.test(allText);
         return {
           anchors_total: document.querySelectorAll('a').length,
           staff: pick('/staff/'),
@@ -220,6 +223,7 @@ async function processOne(row: InputRow, outDir: string, timeout: number, slowmo
           researcher: pick('/researcher'),
           imgs: document.querySelectorAll('img').length,
           textCandidates,
+          namesDetected: (hasHan || hasKana),
         };
       });
 

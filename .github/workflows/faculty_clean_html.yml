@@ -72,31 +72,10 @@ jobs:
 
       # === Self-check（教育・農の描画ができているか） ===
       - name: Self-check metrics
+        working-directory: tools/faculty-grabber
         run: |
-          node -e '
-          const fs=require("fs");const path=require("path");
-          const capDir="captures";
-          if(!fs.existsSync(capDir)){console.error("captures/ missing");process.exit(1)}
-          const files=fs.readdirSync(capDir).filter(f=>f.endsWith(".html"));
-          if(!files.length){console.error("no html in captures/");process.exit(1)}
-          let okEdu=false, okAgr=false;
-          for(const f of files){
-            const html=fs.readFileSync(path.join(capDir,f),"utf8");
-            const base=f.replace(/\.html$/,'');
-            let url=""; try{ const meta=JSON.parse(fs.readFileSync(path.join(capDir, base+".meta.json"),"utf8")); url=String(meta.url||""); }catch{}
-            if(/edu\.hokudai\.ac\.jp/.test(url)){
-              okEdu = okEdu || /class="[^"]*intro-section[^"]*"/.test(html) && /class="[^"]*(name|m-name)[^"]*">[^<]{2,}</.test(html);
-            }
-            if(/agr\.hokudai\.ac\.jp/.test(url)){
-              const nameOk = /class="[^"]*(list-item-faculty|item-faculty)[^"]*"/.test(html) && /class="[^"]*name[^"]*">[^<]{2,}</.test(html);
-              const labOk  = /href="[^"]*\/r\/lab\//.test(html);
-              okAgr = okAgr || (nameOk && labOk);
-            }
-          }
-          if(!okEdu) { console.error("EDU check failed: names not visible"); process.exit(1); }
-          if(!okAgr) { console.error("AGR check failed: names or /r/lab missing"); process.exit(1); }
-          console.log("Self-check passed: EDU & AGR rendered OK");
-          '
+          test -f dist/selfcheck.js || npm run build
+          node dist/selfcheck.js
 
       # === Cleaner（captures/*.html を入力） ===
       - name: Build cleaner
