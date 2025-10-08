@@ -1,0 +1,19 @@
+{
+  "name": "faculty-cleaner",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc -p .",
+    "run:sheet": "node dist/runSheet.js"
+  },
+  "dependencies": {
+    "cheerio": "^1.0.0-rc.12",
+    "googleapis": "^131.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5"
+  }
+}
+
