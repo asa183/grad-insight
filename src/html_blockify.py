@@ -428,6 +428,8 @@ def blockify_html(url: str, html: str, max_blocks: int = 300, golden: Optional[D
                         })
                         if len(rows) >= max_blocks:
                             break
+                except Exception:
+                    pass
             if rows:
                 return rows[:max_blocks]
     except Exception:
