@@ -5,7 +5,8 @@
   "scripts": {
     "install:pw": "playwright install",
     "build": "tsc -p tsconfig.json",
-    "grab": "node dist/grab.js"
+    "grab": "node dist/grab.js",
+    "grab:install": "npx playwright install --with-deps"
   },
   "dependencies": {
     "fs-extra": "^11.2.0",
@@ -16,8 +17,8 @@
   },
   "devDependencies": {
     "@types/fs-extra": "^11.0.4",
+    "@types/papaparse": "^5.3.14",
     "@types/node": "^22.7.5",
     "typescript": "^5.5.4"
   }
 }
-
