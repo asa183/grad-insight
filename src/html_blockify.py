@@ -556,7 +556,7 @@ def blockify_html(url: str, html: str, max_blocks: int = 300, golden: Optional[D
                     "group_id": "role" if _has_role_text(text_v) else "golden",
                     "path": path,
                     "has_img": "TRUE" if has_img else "FALSE",
-                    "text": text_v[:45000],
+                    "text": text_v[:TEXT_MAX],
                     "links_json": json_dumps_safe(links),
                 })
             return rows[:max_blocks]
@@ -627,7 +627,7 @@ def blockify_html(url: str, html: str, max_blocks: int = 300, golden: Optional[D
             "group_id": gid,
             "path": path,
             "has_img": "TRUE" if has_img else "FALSE",
-            "text": text_v[:45000],
+            "text": text_v[:TEXT_MAX],
             "links_json": json_dumps_safe(links),
         })
     return rows
