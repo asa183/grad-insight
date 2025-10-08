@@ -5,11 +5,13 @@ const NOISE_SELECTOR_LIST = [
   '.global-nav','.site-header','.site-footer','.breadcrumb','.breadcrumbs','.pager','.pagination',
   '.sns','.share','.social','.skip-link','.cookie','.consent','.gdpr','.banner','.ads','.advertisement',
   '.newsletter','.modal','.popup','.drawer','.offcanvas',
+  '.side','.sidenav','[class*="side-nav"]','[id*="side-nav"]',
 ];
 
 const NOISE_CLASS_SUBSTR = [
   'global-nav','site-header','site-footer','breadcrumb','breadcrumbs','pager','pagination','sns','share','social',
-  'skip-link','cookie','consent','gdpr','banner','ads','advert','newsletter','modal','popup','drawer','offcanvas'
+  'skip-link','cookie','consent','gdpr','banner','ads','advert','newsletter','modal','popup','drawer','offcanvas',
+  'side','sidenav','side-nav'
 ];
 
 const FORCE_REMOVE_TAGS = new Set(['script','style','noscript','template','iframe']);
@@ -17,7 +19,7 @@ const FORCE_REMOVE_TAGS = new Set(['script','style','noscript','template','ifram
 const ROLE_WORDS_JA = ['教授','准教授','助教','講師','特任教授','客員教授','名誉教授','非常勤講師','招聘教授','招へい教員'];
 const ROLE_WORDS_EN = ['Professor','Associate Professor','Assistant Professor','Adjunct Professor','Visiting Professor','Professor Emeritus','Lecturer','Research Fellow','Researcher','Senior Researcher','Postdoctoral'];
 const PERSON_LINK_HINTS = ['/faculty-member/','/faculty/','/people/','/person/','/profile','/profiles','/researcher','/researchers','/staff/','/r/lab/'];
-const LABEL_WORDS = ['氏名','専門','研究分野','Research field','Field(s)'];
+const LABEL_WORDS = ['氏名','名前','専門','研究分野','Research field','Field(s)','Fields'];
 
 const BLOCK_TAGS = new Set(['section','article','ul','ol','li','table','thead','tbody','tr','td','th','div','p','h1','h2','h3','h4','h5','h6','dl','dt','dd','hr']);
 
@@ -37,8 +39,8 @@ function hasDescendantAnchorWithProfile($: CheerioAPI, $node: Cheerio<any>): boo
 
 function hasNameOrRoleClues($: CheerioAPI, $node: Cheerio<any>): boolean {
   const text = $node.text();
-  const kanjiName = /[\p{sc=Han}]{2,}\s+[\p{sc=Han}]{1,}/u;
-  const kataName = /[\p{sc=Katakana}・ー]{2,}(\s+[\p{sc=Katakana}・ー]{2,})?/u;
+  const kanjiName = /[\p{sc=Han}]{2,}(?:[\s\u3000]+)[\p{sc=Han}]{1,}/u;
+  const kataName = /[\p{sc=Katakana}・ー]{2,}(?:[\s\u3000]+[\p{sc=Katakana}・ー]{2,})?/u;
   const roles = new RegExp('(' + [...ROLE_WORDS_JA, ...ROLE_WORDS_EN].map(escapeRegExp).join('|') + ')', 'i');
   return kanjiName.test(text) || kataName.test(text) || roles.test(text);
 }
@@ -151,10 +153,21 @@ function finalizeFormatting($: CheerioAPI, $scope: Cheerio<any>): string {
   compressBrRuns($, $scope); normalizeTextWhitespace($, $scope); removeCommentsDeep($, $scope); let html = $.html($scope[0]); html = ensureNewlinesBetweenBlocks(html); return html;
 }
 
+function removeEmptyBlocks($: CheerioAPI, $scope: Cheerio<any>) {
+  const removable = new Set(['div','section','article','p','span','li']);
+  const hasUsefulDesc = ($el: Cheerio<any>) => $el.find('a,img,table,thead,tbody,tr,td,th,dl,dt,dd,ul,ol,h1,h2,h3,h4,h5,h6').length > 0;
+  $scope.find(Array.from(removable).join(',')).each((_, el) => {
+    const $el = $(el);
+    if (hasUsefulDesc($el)) return;
+    const txt = ($el.text() || '').replace(/\u00A0|&nbsp;/g, ' ').replace(/[\t ]+/g, ' ').trim();
+    if (txt.length === 0) $el.remove();
+  });
+}
+
 export function cleanFacultyHtml(html: string, sourceUrl: string): string {
   const $ = load(html);
   const $scope = selectScope($);
-  removeOrUnwrapNoise($, $scope); removeForcedTags($, $scope); absolutizeLinksAndImages($, $scope, sourceUrl); pruneEventAndStyle($, $scope);
+  removeOrUnwrapNoise($, $scope); removeForcedTags($, $scope); absolutizeLinksAndImages($, $scope, sourceUrl); pruneEventAndStyle($, $scope); removeEmptyBlocks($, $scope);
   let out = finalizeFormatting($, $scope);
   if (out.length > 30000) { const $_ = load(out); const $scope2 = selectScope($_); clipToLimit($_, $scope2, 30000); out = ensureNewlinesBetweenBlocks($_.html($scope2[0])); }
   return out;
