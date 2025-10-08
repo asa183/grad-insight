@@ -1,0 +1,23 @@
+{
+  "name": "faculty-grabber",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "install:pw": "playwright install",
+    "build": "tsc -p tsconfig.json",
+    "grab": "node dist/grab.js"
+  },
+  "dependencies": {
+    "fs-extra": "^11.2.0",
+    "papaparse": "^5.4.1",
+    "playwright": "^1.47.2",
+    "yargs": "^17.7.2",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/fs-extra": "^11.0.4",
+    "@types/node": "^22.7.5",
+    "typescript": "^5.5.4"
+  }
+}
+
