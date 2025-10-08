@@ -18,13 +18,13 @@ jobs:
         with:
           node-version: 20
           cache: 'npm'
-          cache-dependency-path: grad-insight/tools/faculty-cleaner/package.json
+          cache-dependency-path: tools/faculty-cleaner/package.json
       - name: Install
-        working-directory: grad-insight/tools/faculty-cleaner
+        working-directory: tools/faculty-cleaner
         run: npm install --no-audit --no-fund
       - name: Build
-        working-directory: grad-insight/tools/faculty-cleaner
+        working-directory: tools/faculty-cleaner
         run: npm run build
       - name: Run Sheet → Drive
-        working-directory: grad-insight/tools/faculty-cleaner
+        working-directory: tools/faculty-cleaner
         run: npm run run:sheet
