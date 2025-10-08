@@ -4,6 +4,7 @@ import path from 'path';
 import { parseInput } from './input.js';
 import { hideBin } from 'yargs/helpers';
 import yargs from 'yargs';
+import * as cheerio from 'cheerio';
 const argv = yargs(hideBin(process.argv))
     .option('input', { type: 'string', demandOption: true, describe: 'CSV/TSV/NDJSON file path or single URL string' })
     .option('out', { type: 'string', default: './captures', describe: 'Output directory for HTML/meta (created if missing)' })
@@ -13,6 +14,7 @@ const argv = yargs(hideBin(process.argv))
     .option('headful', { type: 'boolean', default: false, describe: 'Run with visible browser GUI' })
     .option('site', { type: 'string', default: 'auto', choices: ['auto', 'law', 'agr', 'edu'], describe: 'Site-specific click/wait preset' })
     .option('screenshot', { type: 'boolean', default: false, describe: 'Save full-page screenshot' })
+    .option('method', { type: 'string', default: 'auto', choices: ['auto', 'http', 'playwright'] })
     .option('stealth', { type: 'boolean', default: true, describe: 'Apply stealth-like page hardening' })
     .option('names-timeout', { type: 'number', default: 30000, describe: 'Max wait for names to appear (ms)' })
     .strict()
@@ -32,6 +34,35 @@ function sitePreset(url, pref) {
     if (/edu\.hokudai\.ac\.jp\/graduate_school\/department\/academic/.test(url))
         return 'edu';
     return 'law';
+}
+function detectSite(url, explicit) {
+    if (explicit) {
+        const s = explicit.toLowerCase();
+        if (s === 'let')
+            return 'let';
+        if (s === 'agr')
+            return 'agr';
+        if (s === 'edu')
+            return 'edu';
+        if (s === 'fish')
+            return 'fish';
+    }
+    if (/let\.hokudai\.ac\.jp\/research\/staff-g/.test(url))
+        return 'let';
+    if (/agr\.hokudai\.ac\.jp\/r\/faculty/.test(url))
+        return 'agr';
+    if (/edu\.hokudai\.ac\.jp\/graduate_school\/department\/academic/.test(url))
+        return 'edu';
+    if (/fish|faculty-member/.test(url))
+        return 'fish';
+    return 'other';
+}
+function chooseMethod(site, cliMethod) {
+    if (cliMethod !== 'auto')
+        return cliMethod;
+    if (site === 'agr' || site === 'fish' || site === 'other')
+        return 'http';
+    return 'playwright'; // let, edu
 }
 function toSlug(u) {
     const host = u.host.replace(/[:.]/g, '-');
@@ -112,12 +143,61 @@ async function waitNamesVisible(page, site, timeout) {
 }
 async function processOne(row, outDir, timeout, slowmo, headful, sitePref, screenshot) {
     const url = row.url.trim();
-    const site = sitePreset(url, sitePref);
+    const siteKind = detectSite(url, row.site);
+    const method = chooseMethod(siteKind, argv.method);
+    const site = sitePreset(url, sitePref); // legacy for in-page waits
     const u = new URL(url);
     const slug = toSlug(u);
     const ts = new Date();
     const stamp = ts.toISOString().replace(/[-:]/g, '').replace('T', '_').slice(0, 15); // YYYYMMDD_HHMM
     await fs.ensureDir(outDir);
+    if (row.capture_html === false) {
+        console.log(`SKIP ${url} (capture_html=false)`);
+        return false;
+    }
+    if (method === 'http') {
+        try {
+            const res = await fetch(url, { redirect: 'follow' });
+            if (!res.ok)
+                throw new Error(`HTTP ${res.status}`);
+            const raw = await res.text();
+            const $ = cheerio.load(raw);
+            const node = $('main').first();
+            const outer = (node.length ? $.html(node.get(0)) : $('body').length ? $.html($('body').get(0)) : raw) || raw;
+            // metrics from HTML
+            const $$ = cheerio.load(outer);
+            const anchors = $$('a').toArray().map((a) => $$(a).attr('href') || '');
+            const staff = anchors.filter((h) => h.includes('/staff/')).length;
+            const rlab = anchors.filter((h) => h.includes('/r/lab/')).length;
+            const fish = anchors.filter((h) => h.includes('/faculty-member/')).length;
+            const names = $$('.name, .m-name, dt.name').toArray().filter((el) => ($$(el).text() || '').trim().length >= 2).length;
+            const allText = $$.root().text().replace(/\s+/g, '');
+            const namesDetected = /[\p{sc=Han}]{2,}/u.test(allText) || /[\p{sc=Katakana}・ー]{2,}/u.test(allText);
+            const base = path.join(outDir, `${slug}-${stamp}`);
+            const htmlPath = `${base}.html`;
+            const metaPath = `${base}.meta.json`;
+            await fs.writeFile(htmlPath, outer, 'utf8');
+            const meta = {
+                url,
+                university: row.university ?? null,
+                graduate_school: row.graduate_school ?? null,
+                site: siteKind,
+                methodUsed: 'http',
+                saved_at_iso: new Date().toISOString(),
+                output: path.resolve(htmlPath),
+                screenshot: null,
+                metrics: { staff, rlab, fish, names, namesDetected },
+                attempts: 1,
+            };
+            await fs.writeJson(metaPath, meta, { spaces: 2 });
+            console.log(`OK  ${url} site=${siteKind} method=http staff=${staff} rlab=${rlab} fish=${fish} names=${names} out=${path.basename(htmlPath)}`);
+            return true;
+        }
+        catch (e) {
+            console.error(`FAIL ${url} (http) err=${e?.message || String(e)}`);
+            return false;
+        }
+    }
     const browser = await chromium.launch({ headless: !headful, slowMo: slowmo || 0 });
     const ctx = await browser.newContext(argv.stealth ? {
         userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
@@ -232,15 +312,22 @@ async function processOne(row, outDir, timeout, slowmo, headful, sitePref, scree
                     const t = (el.innerText || '').replace(/\s+/g, ' ').trim();
                     return vis && t.length >= 20;
                 }).length;
+                const allText = (document.body?.innerText || '').replace(/\s+/g, '');
+                const hasHan = /[\p{sc=Han}]{2,}/u.test(allText);
+                const hasKana = /[\p{sc=Katakana}・ー]{2,}/u.test(allText);
+                const names = Array.from(document.querySelectorAll('.name, .m-name, dt.name')).filter(el => el.innerText.trim().length >= 2).length;
                 return {
                     anchors_total: document.querySelectorAll('a').length,
                     staff: pick('/staff/'),
                     rlab: pick('/r/lab/'),
+                    fish: pick('/faculty-member/'),
                     people: pick('/people/'),
                     profile: pick('/profile'),
                     researcher: pick('/researcher'),
                     imgs: document.querySelectorAll('img').length,
                     textCandidates,
+                    namesDetected: (hasHan || hasKana),
+                    names,
                 };
             });
             // Post-check minimum signals (relaxed OR conditions for robustness)
@@ -298,7 +385,8 @@ async function processOne(row, outDir, timeout, slowmo, headful, sitePref, scree
             url,
             university: row.university ?? null,
             graduate_school: row.graduate_school ?? null,
-            site_preset: site,
+            site,
+            methodUsed: 'playwright',
             saved_at_iso: new Date().toISOString(),
             output: path.resolve(htmlPath),
             screenshot: screenshotPath ?? null,

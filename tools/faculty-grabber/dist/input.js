@@ -17,6 +17,8 @@ export async function parseInput(input) {
             url: String(obj.url || obj.URL || obj.link || '').trim(),
             university: obj.university || obj.University || obj.uni || undefined,
             graduate_school: obj.graduate_school || obj.grad || obj.school || undefined,
+            capture_html: toBool(obj.capture_html),
+            site: obj.site || undefined,
         }))
             .filter(r => r.url);
     }
@@ -35,7 +37,19 @@ export async function parseInput(input) {
             url,
             university: r.university || r.University || r.uni || undefined,
             graduate_school: r.graduate_school || r.grad || r.school || undefined,
+            capture_html: toBool(r.capture_html || r.CAPTURE_HTML || r['capture html'] || r['capture_html'] || r.J),
+            site: (r.site || r.SITE || '').toString().trim().toLowerCase() || undefined,
         });
     }
     return out;
+}
+function toBool(v) {
+    if (v === undefined || v === null)
+        return undefined;
+    const s = String(v).trim().toLowerCase();
+    if (['true', '1', 'yes', 'y'].includes(s))
+        return true;
+    if (['false', '0', 'no', 'n'].includes(s))
+        return false;
+    return undefined;
 }

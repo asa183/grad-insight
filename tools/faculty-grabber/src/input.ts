@@ -1,7 +1,7 @@
 import fs from 'fs-extra';
 import Papa from 'papaparse';
 
-export type InputRow = { url: string; university?: string; graduate_school?: string };
+export type InputRow = { url: string; university?: string; graduate_school?: string; capture_html?: boolean; site?: string };
 
 export async function parseInput(input: string): Promise<InputRow[]> {
   // If looks like a URL and not a local file path, treat as single URL
@@ -22,6 +22,8 @@ export async function parseInput(input: string): Promise<InputRow[]> {
         url: String(obj.url || obj.URL || obj.link || '').trim(),
         university: obj.university || obj.University || obj.uni || undefined,
         graduate_school: obj.graduate_school || obj.grad || obj.school || undefined,
+        capture_html: toBool(obj.capture_html),
+        site: obj.site || undefined,
       }))
       .filter(r => r.url);
   }
@@ -39,8 +41,17 @@ export async function parseInput(input: string): Promise<InputRow[]> {
       url,
       university: r.university || r.University || r.uni || undefined,
       graduate_school: r.graduate_school || r.grad || r.school || undefined,
+      capture_html: toBool(r.capture_html || r.CAPTURE_HTML || r['capture html'] || r['capture_html'] || r.J),
+      site: (r.site || r.SITE || '').toString().trim().toLowerCase() || undefined,
     });
   }
   return out;
 }
 
+function toBool(v: any): boolean | undefined {
+  if (v === undefined || v === null) return undefined;
+  const s = String(v).trim().toLowerCase();
+  if (['true','1','yes','y'].includes(s)) return true;
+  if (['false','0','no','n'].includes(s)) return false;
+  return undefined;
+}

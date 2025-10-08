@@ -30,38 +30,28 @@ jobs:
           npm install --no-audit --no-fund
           npx playwright install --with-deps
 
+      - name: Build URLs from Google Sheets (Examples)
+        env:
+          SHEET_ID: ${{ secrets.SHEET_ID }}
+          SHEET_NAME: ${{ env.SHEET_NAME }}
+          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+        run: |
+          node tools/faculty-grabber/dist/buildUrlsFromSheet.js
+
       - name: Build faculty-grabber
         working-directory: tools/faculty-grabber
         run: |
           npm run build
           echo "grabber dist contents:" && ls -la dist || true
 
-      - name: Grab rendered HTMLs (main.outerHTML)
-        working-directory: tools/faculty-grabber
+      - name: Grab from Google Sheets and push to Drive (J列=有効のみ)
         env:
-          TZ: Asia/Tokyo
-          GRAB_INPUT: ${{ vars.GRAB_INPUT }}
+          SHEET_ID: ${{ secrets.SHEET_ID }}
+          SHEET_NAME: ${{ env.SHEET_NAME }}
+          DRIVE_FOLDER_ID: ${{ env.DRIVE_FOLDER_ID }}
+          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
         run: |
-          INPUT_PATH="${GRAB_INPUT:-../../urls.csv}"
-          if [ "${INPUT_PATH#http}" = "$INPUT_PATH" ] && [ ! -f "$INPUT_PATH" ]; then
-            echo "Input not found: $INPUT_PATH"; ls -la ../..;
-            echo "Creating fallback ../../urls.csv"
-            {
-              echo "url";
-              echo "https://www.agr.hokudai.ac.jp/r/faculty";
-              echo "https://www.edu.hokudai.ac.jp/graduate_school/department/academic/";
-            } > ../../urls.csv
-            INPUT_PATH=../../urls.csv
-          fi
-          mkdir -p ../../captures
-          node dist/grab.js \
-            --input "$INPUT_PATH" \
-            --out ../../captures \
-            --concurrency 2 \
-            --timeout 60000 \
-            --site auto \
-            --screenshot
-          echo "captures tree:" && ls -la ../../captures || true
+          node tools/faculty-grabber/dist/runFromSheet.js
 
       - name: Upload captures (artifact)
         if: always()
@@ -70,26 +60,23 @@ jobs:
           name: captured-html
           path: captures/**
 
-      # === Self-check（教育・農の描画ができているか） ===
+      # === Self-check（今回処理分のみ判定） ===
       - name: Self-check metrics
         run: |
           node tools/faculty-grabber/dist/selfcheck.js
 
-      # === Cleaner（captures/*.html を入力） ===
-      - name: Build cleaner
-        working-directory: tools/faculty-cleaner
-        run: |
-          npm install --no-audit --no-fund
-          npm run build
+      # 下流のcleaner/Sheets/Driveは runFromSheet.js がDrive&K列更新を行うため省略
 
-      - name: Run cleaner with captured HTMLs
+      - name: Write to Sheets & upload to Drive
         env:
-          INPUT_DIR: ../../captures
-          OUTPUT_DIR: ../../cleaned
-        working-directory: tools/faculty-cleaner
+          INPUT_DIR: cleaned
+          CAP_DIR: captures
+          SHEET_ID: ${{ secrets.SHEET_ID }}
+          SHEET_NAME: ${{ env.SHEET_NAME }}
+          DRIVE_FOLDER_ID: ${{ env.DRIVE_FOLDER_ID }}
+          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
         run: |
-          node dist/runDir.js
-          echo "Cleaned outputs:" && ls -1 ../../cleaned || true
+          node tools/faculty-cleaner/dist/pushDir.js
 
       - name: Upload cleaned (artifact)
         if: always()
