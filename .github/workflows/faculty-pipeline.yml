@@ -22,17 +22,17 @@ jobs:
 
       # === Playwright (必須) ===
       - name: Install Playwright browsers
-        working-directory: tools/faculty-grabber
+        working-directory: grad-insight/tools/faculty-grabber
         run: |
           npm install --no-audit --no-fund
           npx playwright install --with-deps
 
       - name: Build faculty-grabber
-        working-directory: tools/faculty-grabber
-        run: pnpm run build
+        working-directory: grad-insight/tools/faculty-grabber
+        run: npm run build
 
       - name: Grab rendered HTMLs (main.outerHTML)
-        working-directory: tools/faculty-grabber
+        working-directory: grad-insight/tools/faculty-grabber
         env:
           TZ: Asia/Tokyo
         run: |
@@ -84,7 +84,7 @@ jobs:
 
       # === Cleaner / downstream ===
       - name: Build cleaner
-        working-directory: tools/faculty-cleaner
+        working-directory: grad-insight/tools/faculty-cleaner
         run: |
           npm install --no-audit --no-fund
           npm run build
@@ -93,7 +93,7 @@ jobs:
         env:
           INPUT_DIR: captures
           OUTPUT_DIR: cleaned
-        working-directory: tools/faculty-cleaner
+        working-directory: grad-insight/tools/faculty-cleaner
         run: |
           node dist/runDir.js
           echo "Cleaned outputs:" && ls -1 ../../cleaned || true
