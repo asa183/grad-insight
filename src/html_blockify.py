@@ -1,5 +1,5 @@
 from __future__ import annotations
-import re
+import re, os
 from typing import List, Dict, Tuple, Optional
 from urllib.parse import urljoin, urlparse
 
@@ -25,6 +25,21 @@ ROLE_KEYWORDS = [
 TEXT_MIN = 10
 TEXT_MAX = 30000  # keep below Google Sheets cell limits
 ASCEND_MAX = 8
+
+
+def _normalize_ws(s: str) -> str:
+    return re.sub(r"\s+", " ", (s or "").strip())
+
+
+PERSONAL_LINK_PATTERNS = (
+    "/faculty-member/", "/faculty/", "/people/", "/person/", "/profiles/", "/profile",
+    "/researcher", "/researchers/", "/staff/", "/r/lab/",
+)
+
+
+def _looks_personal_href(href: str) -> bool:
+    h = href or ""
+    return any(p in h for p in PERSONAL_LINK_PATTERNS)
 
 
 def _slugify(s: str) -> str:
@@ -124,7 +139,131 @@ def _has_role_text(text: str) -> bool:
     return any(k in t for k in ROLE_KEYWORDS)
 
 
-def blockify_html(url: str, html: str, max_blocks: int = 300, golden: Optional[Dict[str, str]] = None) -> List[Dict[str, str]]:
+def _container_score(n: "Node") -> Tuple[int,int,int,int,int,int]:
+    """Score container: higher is better (role, personal link, img, length in range, tag priority)."""
+    try:
+        t = n.text() or ""
+    except Exception:
+        t = ""
+    s_role = 1 if _has_role_text(t) else 0
+    s_plink = 0
+    try:
+        for a in n.css('a'):
+            if _looks_personal_href(a.attributes.get('href') or ''):
+                s_plink = 1; break
+    except Exception:
+        pass
+    s_img = 0
+    try:
+        s_img = 1 if any(True for _ in n.css('img')) else 0
+    except Exception:
+        s_img = 0
+    tl = len(_normalize_ws(t))
+    s_len = 1 if (40 <= tl <= 5000) else 0
+    tag = getattr(n, 'tag', '') or ''
+    tag_pri = {'li':4,'article':3,'section':2,'div':1,'dd':3}.get(tag,0)
+    return (s_role, s_plink, s_img, s_len, tag_pri, tl)
+
+
+def _unique_key_for(n: "Node") -> str:
+    # Prefer first personal link, else css path
+    try:
+        for a in n.css('a'):
+            href = a.attributes.get('href') or ''
+            if _looks_personal_href(href):
+                return href
+    except Exception:
+        pass
+    return _css_path(n)
+
+
+def _role_first_blocks(url: str, root: "Node", max_blocks: int) -> List[Dict[str,str]]:
+    seeds: List["Node"] = []
+    # collect candidates from common tags with text
+    try:
+        for sel in ('li','article','section','div','p','h1','h2','h3','h4','h5','h6'):
+            for n in root.css(sel):
+                try:
+                    t = n.text() or ''
+                    if _has_role_text(t):
+                        seeds.append(n)
+                except Exception:
+                    continue
+    except Exception:
+        pass
+    seen: set[str] = set()
+    rows: List[Dict[str,str]] = []
+    for s in seeds:
+        # ascend to best container
+        best = s
+        best_sc = _container_score(s)
+        steps = 0
+        p = getattr(s, 'parent', None)
+        while p is not None and steps < ASCEND_MAX:
+            sc = _container_score(p)
+            if sc > best_sc:
+                best, best_sc = p, sc
+            p = getattr(p, 'parent', None)
+            steps += 1
+        # Ensure reasonable length; if too short, expand with siblings
+        try:
+            txt = _normalize_ws(best.text() or '')
+        except Exception:
+            txt = ''
+        if len(txt) < 40:
+            # try include previous/next sibling
+            for sib_dir in ('prev','next'):
+                sib = getattr(best, sib_dir, None)
+                try:
+                    if sib is not None:
+                        txt2 = _normalize_ws((best.text() or '') + ' ' + (sib.text() or ''))
+                        if len(txt2) >= 40:
+                            best = best  # keep as-is; text will include siblings via container ascent in next rounds
+                            break
+                except Exception:
+                    pass
+        key = _unique_key_for(best)
+        if key in seen:
+            continue
+        seen.add(key)
+        # Build row
+        tag = getattr(best, 'tag', '') or 'DIV'
+        depth = 0; q = best
+        while q is not None:
+            depth += 1
+            q = getattr(q, 'parent', None)
+        has_img = False
+        try:
+            has_img = any(True for _ in best.css('img'))
+        except Exception:
+            has_img = False
+        links = []
+        try:
+            for a in best.css('a'):
+                href = a.attributes.get('href') or ''
+                txta = _normalize_ws(a.text() or '')
+                if href:
+                    links.append({"href": href, "text": txta})
+        except Exception:
+            pass
+        try:
+            text_v = best.text() or ''
+        except Exception:
+            text_v = ''
+        rows.append({
+            'block_id': str(len(rows)+1),
+            'tag': tag.upper(),
+            'depth': str(depth),
+            'group_id': 'role-first',
+            'path': _css_path(best),
+            'has_img': 'TRUE' if has_img else 'FALSE',
+            'text': text_v[:TEXT_MAX],
+            'links_json': json_dumps_safe(links),
+        })
+        if len(rows) >= max_blocks:
+            break
+    return rows
+def blockify_html(url: str, html: str, max_blocks: int = 300, golden: Optional[Dict[str, str]] = None, prefer_role: Optional[bool] = None) -> List[Dict[str, str]]:
     base_url = url
     out: List[Dict[str, str]] = []
     if not HAVE_SELECTOLAX:
@@ -213,6 +352,16 @@ def blockify_html(url: str, html: str, max_blocks: int = 300, golden: Optional[D
     root = tree.body or tree
     _remove_unwanted(root)
     _make_absolute(root, base_url)
+
+    # Role-first extraction (structure-light): prioritize blocks anchored by role keywords
+    try:
+        pref = prefer_role if prefer_role is not None else (os.environ.get('PREFER_ROLE','').lower() in ('1','true','yes'))
+        if pref:
+            rows_rf: List[Dict[str,str]] = _role_first_blocks(url, root, max_blocks)
+            if rows_rf:
+                return rows_rf[:max_blocks]
+    except Exception:
+        pass
 
     # Host-specific: Hokkaido fish faculty listing (per-professor blocks)
     try:

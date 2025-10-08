@@ -135,7 +135,8 @@ def run(sheet_id: str, examples_name: str, max_blocks: int):
             "theme": col("研究テーマ（JP）", "研究テーマ（JP}"),
             "link": col("リンク（JP）", "リンク（JP}"),
         }
-        blocks = blockify_html(url, html, max_blocks=max_blocks, golden=golden)
+        prefer_role = os.environ.get('PREFER_ROLE','').lower() in ('1','true','yes')
+        blocks = blockify_html(url, html, max_blocks=max_blocks, golden=golden, prefer_role=prefer_role)
         elapsed_ms = int((time.time() - t0) * 1000)
         print(f"PARSE blocks_total={len(blocks)} blocks_kept={len(blocks)} elapsed={elapsed_ms}ms")
         # Sheet title
