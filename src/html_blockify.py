@@ -298,17 +298,24 @@ def blockify_html(url: str, html: str, max_blocks: int = 300, golden: Optional[D
                     return sum(1 for a in n.css('a') if '/r/lab/' in (a.attributes.get('href') or ''))
                 except Exception:
                     return 0
-            # scan all li nodes
+            # scan all li nodes (primary)
             for li in root.css('li'):
                 try:
-                    tl = len(li.text() or '')
-                    if tl < 20 or tl > 6000:
+                    txt_li = li.text() or ''
+                    tl = len(txt_li)
+                    if tl < 10 or tl > 8000:
                         continue
                     lc = count_lab_links(li)
-                    if lc != 1:
-                        continue
-                    if not _has_role_text(li.text() or ''):
-                        continue
+                    has_role = _has_role_text(txt_li)
+                    # Accept if it looks like a person row:
+                    # - Prefer role keyword, allow up to 5 lab links (some entries list multiple labs)
+                    # - Or, if no role keyword, require exactly 1 lab link as a strong hint
+                    if has_role:
+                        if lc > 5:
+                            continue
+                    else:
+                        if lc != 1:
+                            continue
                 except Exception:
                     continue
                 # use this li as block
@@ -358,6 +365,61 @@ def blockify_html(url: str, html: str, max_blocks: int = 300, golden: Optional[D
                 })
                 if len(rows) >= max_blocks:
                     break
+            # Secondary: some themes use cards; include minimal .card blocks that contain role keywords
+            if len(rows) < max_blocks:
+                try:
+                    for card in root.css('.card'):
+                        try:
+                            txt = card.text() or ''
+                            if not _has_role_text(txt):
+                                continue
+                            tl = len(txt)
+                            if tl < 10 or tl > 8000:
+                                continue
+                        except Exception:
+                            continue
+                        path = _css_path(card)
+                        if path in seen_keys:
+                            continue
+                        seen_keys.add(path)
+                        bid += 1
+                        # depth
+                        depth = 0; q = card
+                        while q is not None:
+                            depth += 1
+                            q = getattr(q, 'parent', None)
+                        # has_img
+                        has_img = False
+                        try:
+                            has_img = any(True for _ in card.css('img'))
+                        except Exception:
+                            has_img = False
+                        # links
+                        links=[]
+                        try:
+                            for la in card.css('a'):
+                                href = la.attributes.get('href') or ''
+                                txta = la.text() or ''
+                                if href:
+                                    links.append({"href": href, "text": re.sub(r"\s+"," ", txta).strip()})
+                        except Exception:
+                            pass
+                        try:
+                            text_v = _text_with_breaks_sel(card)
+                        except Exception:
+                            text_v = card.text() or ''
+                        rows.append({
+                            "block_id": str(bid),
+                            "tag": (card.tag.upper() if getattr(card,'tag',None) else 'DIV'),
+                            "depth": str(depth),
+                            "group_id": "hokudai-agr",
+                            "path": path,
+                            "has_img": "TRUE" if has_img else "FALSE",
+                            "text": text_v[:45000],
+                            "links_json": json_dumps_safe(links),
+                        })
+                        if len(rows) >= max_blocks:
+                            break
             if rows:
                 return rows[:max_blocks]
     except Exception:
