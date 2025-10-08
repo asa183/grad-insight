@@ -37,8 +37,16 @@ jobs:
           TZ: Asia/Tokyo
         run: |
           INPUT_PATH="${GRAB_INPUT:-../../urls.csv}"
+          # If not URL and file missing, create a fallback urls.csv with known EDU/AGR pages
           if [ "${INPUT_PATH#http}" = "$INPUT_PATH" ] && [ ! -f "$INPUT_PATH" ]; then
-            echo "Input not found: $INPUT_PATH"; ls -la ../..; exit 1;
+            echo "Input not found: $INPUT_PATH"; ls -la ../..;
+            echo "Creating fallback ../../urls.csv"
+            cat > ../../urls.csv << 'CSV'
+url
+https://www.agr.hokudai.ac.jp/r/faculty
+https://www.edu.hokudai.ac.jp/graduate_school/department/academic/
+CSV
+            INPUT_PATH=../../urls.csv
           fi
           node dist/grab.js \
             --input "$INPUT_PATH" \
@@ -68,10 +76,12 @@ jobs:
           let okEdu=false, okAgr=false;
           for(const f of files){
             const html=fs.readFileSync(path.join(capDir,f),"utf8");
-            if(/edu\.hokudai\.ac\.jp/.test(f)){
+            const base=f.replace(/\.html$/,'');
+            let url=""; try{ const meta=JSON.parse(fs.readFileSync(path.join(capDir, base+".meta.json"),"utf8")); url=String(meta.url||""); }catch{}
+            if(/edu\.hokudai\.ac\.jp/.test(url)){
               okEdu = okEdu || /class="[^"]*intro-section[^"]*"/.test(html) && /class="[^"]*(name|m-name)[^"]*">[^<]{2,}</.test(html);
             }
-            if(/agr\.hokudai\.ac\.jp/.test(f)){
+            if(/agr\.hokudai\.ac\.jp/.test(url)){
               const nameOk = /class="[^"]*(list-item-faculty|item-faculty)[^"]*"/.test(html) && /class="[^"]*name[^"]*">[^<]{2,}</.test(html);
               const labOk  = /href="[^"]*\/r\/lab\//.test(html);
               okAgr = okAgr || (nameOk && labOk);
