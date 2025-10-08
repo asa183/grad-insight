@@ -52,6 +52,7 @@ async function getAuth() {
 }
 
 async function ensureAnyoneReader(drive: any, fileId: string) {
+  if ((process.env.DISABLE_PUBLIC || '').trim() === '1') return;
   try {
     await drive.permissions.create({ fileId, requestBody: { type: 'anyone', role: 'reader' }, supportsAllDrives: true });
   } catch (e: any) {
@@ -76,6 +77,16 @@ async function main() {
   const auth = await getAuth();
   const sheets = google.sheets({ version: 'v4', auth: auth as any });
   const drive = google.drive({ version: 'v3', auth: auth as any });
+
+  // Preflight: check Shared Drive folder accessibility
+  try {
+    const meta = await drive.files.get({ fileId: DRIVE_FOLDER_ID, fields: 'id, name, driveId, parents', supportsAllDrives: true });
+    const d = meta.data as any;
+    console.log(`Drive folder OK: name="${d.name}" id=${d.id} sharedDrive=${d.driveId ? 'yes' : 'no'}`);
+  } catch (e: any) {
+    console.error('Drive folder inaccessible. Share the Shared Drive folder with the service account (Content manager or higher).', e?.message || e);
+    process.exit(2);
+  }
 
   const range = `${SHEET_NAME}!A:O`;
   const resp = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range });
