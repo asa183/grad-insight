@@ -72,10 +72,8 @@ jobs:
 
       # === Self-check（教育・農の描画ができているか） ===
       - name: Self-check metrics
-        working-directory: tools/faculty-grabber
         run: |
-          test -f dist/selfcheck.js || npm run build
-          node dist/selfcheck.js
+          node tools/faculty-grabber/dist/selfcheck.js
 
       # === Cleaner（captures/*.html を入力） ===
       - name: Build cleaner
