@@ -9,6 +9,8 @@ jobs:
   build-and-grab:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      GRAB_INPUT: ${{ vars.GRAB_INPUT }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -18,14 +20,11 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install workspace deps
-        run: pnpm i || npm i -g pnpm && pnpm i
-
       # === Playwright (必須) ===
       - name: Install Playwright browsers
         working-directory: tools/faculty-grabber
         run: |
-          pnpm i
+          npm install --no-audit --no-fund
           npx playwright install --with-deps
 
       - name: Build faculty-grabber
@@ -37,8 +36,12 @@ jobs:
         env:
           TZ: Asia/Tokyo
         run: |
+          INPUT_PATH="${GRAB_INPUT:-../../urls.csv}"
+          if [ "${INPUT_PATH#http}" = "$INPUT_PATH" ] && [ ! -f "$INPUT_PATH" ]; then
+            echo "Input not found: $INPUT_PATH"; ls -la ../..; exit 1;
+          fi
           node dist/grab.js \
-            --input ../../urls.csv \
+            --input "$INPUT_PATH" \
             --out ../../captures \
             --concurrency 2 \
             --timeout 60000 \
@@ -82,7 +85,9 @@ jobs:
       # === Cleaner / downstream ===
       - name: Build cleaner
         working-directory: tools/faculty-cleaner
-        run: pnpm run build || npm run build
+        run: |
+          npm install --no-audit --no-fund
+          npm run build
 
       - name: Run cleaner with captured HTMLs
         env:
@@ -99,4 +104,3 @@ jobs:
         with:
           name: cleaned-html
           path: cleaned/**
-
