@@ -1,7 +1,7 @@
 import { chromium } from 'playwright';
 import fs from 'fs-extra';
 import path from 'path';
-import { parseInput } from './input';
+import { parseInput } from './input.js';
 import { hideBin } from 'yargs/helpers';
 import yargs from 'yargs';
 const argv = yargs(hideBin(process.argv))

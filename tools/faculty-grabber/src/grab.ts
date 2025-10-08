@@ -1,7 +1,7 @@
 import { chromium, Page } from 'playwright';
 import fs from 'fs-extra';
 import path from 'path';
-import { parseInput, InputRow } from './input';
+import { parseInput, InputRow } from './input.js';
 import { hideBin } from 'yargs/helpers';
 import yargs from 'yargs';
 
