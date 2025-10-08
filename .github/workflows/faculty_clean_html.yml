@@ -17,38 +17,108 @@ jobs:
       CONCURRENCY: '3'
     steps:
       - uses: actions/checkout@v4
-      - name: Setup Playwright (for grab)
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # === Playwright + grab (必須) ===
+      - name: Install Playwright browsers
         working-directory: tools/faculty-grabber
         run: |
           npm install --no-audit --no-fund
           npx playwright install --with-deps
-      - name: Grab rendered HTMLs (optional)
-        if: ${{ env.GRAB_INPUT != '' }}
-        env:
-          GRAB_INPUT: ${{ vars.GRAB_INPUT }}
+
+      - name: Build faculty-grabber
         working-directory: tools/faculty-grabber
+        run: npm run build
+
+      - name: Grab rendered HTMLs (main.outerHTML)
+        working-directory: tools/faculty-grabber
+        env:
+          TZ: Asia/Tokyo
+          GRAB_INPUT: ${{ vars.GRAB_INPUT }}
         run: |
-          npm run build
-          if [ -n "$GRAB_INPUT" ]; then
-            node dist/grab.js --input "$GRAB_INPUT" --out ../../captures --concurrency 2 --timeout 60000 --site auto --screenshot
+          INPUT_PATH="${GRAB_INPUT:-../../urls.csv}"
+          if [ "${INPUT_PATH#http}" = "$INPUT_PATH" ] && [ ! -f "$INPUT_PATH" ]; then
+            echo "Input not found: $INPUT_PATH"; ls -la ../..;
+            echo "Creating fallback ../../urls.csv"
+            cat > ../../urls.csv << 'CSV'
+url
+https://www.agr.hokudai.ac.jp/r/faculty
+https://www.edu.hokudai.ac.jp/graduate_school/department/academic/
+CSV
+            INPUT_PATH=../../urls.csv
           fi
+          node dist/grab.js \
+            --input "$INPUT_PATH" \
+            --out ../../captures \
+            --concurrency 2 \
+            --timeout 60000 \
+            --site auto \
+            --screenshot
+
       - name: Upload captures (artifact)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: captured-html
           path: captures/**
-      - uses: actions/setup-node@v4
+
+      # === Self-check（教育・農の描画ができているか） ===
+      - name: Self-check metrics
+        run: |
+          node -e '
+          const fs=require("fs");const path=require("path");
+          const capDir="captures";
+          if(!fs.existsSync(capDir)){console.error("captures/ missing");process.exit(1)}
+          const files=fs.readdirSync(capDir).filter(f=>f.endsWith(".html"));
+          if(!files.length){console.error("no html in captures/");process.exit(1)}
+          let okEdu=false, okAgr=false;
+          for(const f of files){
+            const html=fs.readFileSync(path.join(capDir,f),"utf8");
+            const base=f.replace(/\.html$/,'');
+            let url=""; try{ const meta=JSON.parse(fs.readFileSync(path.join(capDir, base+".meta.json"),"utf8")); url=String(meta.url||""); }catch{}
+            if(/edu\.hokudai\.ac\.jp/.test(url)){
+              okEdu = okEdu || /class="[^"]*intro-section[^"]*"/.test(html) && /class="[^"]*(name|m-name)[^"]*">[^<]{2,}</.test(html);
+            }
+            if(/agr\.hokudai\.ac\.jp/.test(url)){
+              const nameOk = /class="[^"]*(list-item-faculty|item-faculty)[^"]*"/.test(html) && /class="[^"]*name[^"]*">[^<]{2,}</.test(html);
+              const labOk  = /href="[^"]*\/r\/lab\//.test(html);
+              okAgr = okAgr || (nameOk && labOk);
+            }
+          }
+          if(!okEdu) { console.error("EDU check failed: names not visible"); process.exit(1); }
+          if(!okAgr) { console.error("AGR check failed: names or /r/lab missing"); process.exit(1); }
+          console.log("Self-check passed: EDU & AGR rendered OK");
+          '
+
+      # === Cleaner（captures/*.html を入力） ===
+      - name: Build cleaner
+        working-directory: tools/faculty-cleaner
+        run: |
+          npm install --no-audit --no-fund
+          npm run build
+
+      - name: Run cleaner with captured HTMLs
+        env:
+          INPUT_DIR: ../../captures
+          OUTPUT_DIR: ../../cleaned
+        working-directory: tools/faculty-cleaner
+        run: |
+          node dist/runDir.js
+          echo "Cleaned outputs:" && ls -1 ../../cleaned || true
+
+      - name: Upload cleaned (artifact)
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
-          node-version: 20
-          cache: 'npm'
-          cache-dependency-path: tools/faculty-cleaner/package.json
-      - name: Install
-        working-directory: tools/faculty-cleaner
-        run: npm install --no-audit --no-fund
-      - name: Build
-        working-directory: tools/faculty-cleaner
-        run: npm run build
-      - name: Run Sheet → Drive
+          name: cleaned-html
+          path: cleaned/**
+
+      # 旧フロー（URL直取り）は封印（必要なら RUN_SHEET=1 でON）
+      - name: Run Sheet → Drive (legacy URL mode)
+        if: ${{ env.RUN_SHEET == '1' }}
         working-directory: tools/faculty-cleaner
         run: npm run run:sheet
