@@ -6,7 +6,9 @@ import * as cheerio from 'cheerio';
 const SHEET_ID = process.env.SHEET_ID || '';
 const SHEET_NAME = process.env.SHEET_NAME || 'examples';
 const DRIVE_FOLDER_ID = process.env.DRIVE_FOLDER_ID || '';
-const GOOGLE_CREDENTIALS_JSON = process.env.GOOGLE_CREDENTIALS_JSON || '';
+const OAUTH_CLIENT_ID = process.env.OAUTH_CLIENT_ID || '';
+const OAUTH_CLIENT_SECRET = process.env.OAUTH_CLIENT_SECRET || '';
+const OAUTH_REFRESH_TOKEN = process.env.OAUTH_REFRESH_TOKEN || '';
 const METHOD_OVERRIDE = (process.env.METHOD || '').toLowerCase();
 function detectSite(url) {
     if (/let\.hokudai\.ac\.jp\/research\/staff-g/.test(url))
@@ -150,10 +152,16 @@ function selfCheck(site, method, metrics) {
     }
     return true; // other
 }
-async function getAuth() {
-    const creds = JSON.parse(GOOGLE_CREDENTIALS_JSON);
-    const auth = new google.auth.GoogleAuth({ credentials: creds, scopes: ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive'] });
-    return await auth.getClient();
+function getOAuthClient() {
+    if (!OAUTH_CLIENT_ID || !OAUTH_CLIENT_SECRET || !OAUTH_REFRESH_TOKEN)
+        return null;
+    const oauth2 = new google.auth.OAuth2({
+        clientId: OAUTH_CLIENT_ID,
+        clientSecret: OAUTH_CLIENT_SECRET,
+        redirectUri: 'urn:ietf:wg:oauth:2.0:oob',
+    });
+    oauth2.setCredentials({ refresh_token: OAUTH_REFRESH_TOKEN });
+    return oauth2;
 }
 async function ensureLinkSharing(drive, fileId) {
     try {
@@ -168,13 +176,27 @@ function toSlug(u) {
     return `${host}-${tail}`;
 }
 async function main() {
-    if (!SHEET_ID || !DRIVE_FOLDER_ID || !GOOGLE_CREDENTIALS_JSON) {
-        console.error('SHEET_ID, DRIVE_FOLDER_ID, GOOGLE_CREDENTIALS_JSON are required');
+    if (!SHEET_ID || !DRIVE_FOLDER_ID) {
+        console.error('SHEET_ID and DRIVE_FOLDER_ID are required');
         process.exit(2);
     }
-    const auth = await getAuth();
-    const sheets = google.sheets({ version: 'v4', auth: auth });
-    const drive = google.drive({ version: 'v3', auth: auth });
+    // OAuth を必須にして Sheets/Drive を初期化
+    const oauth = getOAuthClient();
+    if (!oauth) {
+        console.error('OAuth credentials are required (OAUTH_CLIENT_ID/SECRET/REFRESH_TOKEN).');
+        process.exit(2);
+    }
+    const sheets = google.sheets({ version: 'v4', auth: oauth });
+    let drive = google.drive({ version: 'v3', auth: oauth });
+    try {
+        const about = await drive.about.get({ fields: 'user' });
+        const email = about.data?.user?.emailAddress || '(unknown)';
+        console.log(`Using OAuth for Drive uploads as ${email}`);
+    }
+    catch (e) {
+        console.error('OAuth initialization failed:', e?.message || e);
+        process.exit(2);
+    }
     // Resolve sheet name case-insensitively
     let sheetName = SHEET_NAME;
     try {
@@ -189,6 +211,16 @@ async function main() {
     catch (e) {
         console.error('Sheet metadata error:', e?.message || e);
         throw e;
+    }
+    // 共有ドライブ/マイドライブのログ（診断用）
+    try {
+        const folderMeta = await drive.files.get({ fileId: DRIVE_FOLDER_ID, fields: 'id,name,driveId', supportsAllDrives: true });
+        const dId = folderMeta.data.driveId;
+        const dName = folderMeta.data.name;
+        console.log(`Drive folder preflight: name="${dName}" sharedDrive=${dId ? 'yes' : 'no'}`);
+    }
+    catch (e) {
+        console.warn('Folder preflight failed:', e?.message || e);
     }
     const resp = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${sheetName}!A:K` });
     const rows = (resp.data.values || []);
@@ -242,11 +274,19 @@ async function main() {
             const fname = `${slug}-${stamp}.html`;
             const fpath = path.join('captures', fname);
             await fs.writeFile(fpath, html, 'utf8');
-            // Upload to Drive
-            const created = await drive.files.create({
-                requestBody: { name: fname, parents: [DRIVE_FOLDER_ID], mimeType: 'text/html' },
-                media: { mimeType: 'text/html', body: fs.createReadStream(fpath) }, fields: 'id, webViewLink', supportsAllDrives: true,
-            });
+            // Upload to Drive（OAuthを優先）
+            let created;
+            try {
+                created = await drive.files.create({
+                    requestBody: { name: fname, parents: [DRIVE_FOLDER_ID], mimeType: 'text/html' },
+                    media: { mimeType: 'text/html', body: fs.createReadStream(fpath) }, fields: 'id, webViewLink', supportsAllDrives: true,
+                });
+            }
+            catch (e) {
+                const msg = e?.message || String(e);
+                console.error('Drive upload error:', msg);
+                throw e;
+            }
             const id = created.data.id;
             await ensureLinkSharing(drive, id);
             const meta = await drive.files.get({ fileId: id, fields: 'id, webViewLink', supportsAllDrives: true });
