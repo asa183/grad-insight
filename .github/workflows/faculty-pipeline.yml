@@ -1,0 +1,102 @@
+name: Faculty Pipeline
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "18 3 * * *"
+
+jobs:
+  build-and-grab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install workspace deps
+        run: pnpm i || npm i -g pnpm && pnpm i
+
+      # === Playwright (必須) ===
+      - name: Install Playwright browsers
+        working-directory: tools/faculty-grabber
+        run: |
+          pnpm i
+          npx playwright install --with-deps
+
+      - name: Build faculty-grabber
+        working-directory: tools/faculty-grabber
+        run: pnpm run build
+
+      - name: Grab rendered HTMLs (main.outerHTML)
+        working-directory: tools/faculty-grabber
+        env:
+          TZ: Asia/Tokyo
+        run: |
+          node dist/grab.js \
+            --input ../../urls.csv \
+            --out ../../captures \
+            --concurrency 2 \
+            --timeout 60000 \
+            --site auto \
+            --screenshot
+
+      # 成果の可視化（常に保存）
+      - name: Upload captures (artifact)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: captured-html
+          path: captures/**
+
+      # === Self-check（名前が描画されているか） ===
+      - name: Self-check metrics
+        run: |
+          node -e '
+          const fs=require("fs");const path=require("path");
+          const capDir="captures";
+          if(!fs.existsSync(capDir)){console.error("captures/ missing");process.exit(1)}
+          const files=fs.readdirSync(capDir).filter(f=>f.endsWith(".html"));
+          if(!files.length){console.error("no html in captures/");process.exit(1)}
+          let okEdu=false, okAgr=false;
+          for(const f of files){
+            const html=fs.readFileSync(path.join(capDir,f),"utf8");
+            if(/edu\.hokudai\.ac\.jp/.test(f)){
+              okEdu = okEdu || /class="[^"]*intro-section[^"]*"/.test(html) && /class="[^"]*(name|m-name)[^"]*">[^<]{2,}</.test(html);
+            }
+            if(/agr\.hokudai\.ac\.jp/.test(f)){
+              const nameOk = /class="[^"]*(list-item-faculty|item-faculty)[^"]*"/.test(html) && /class="[^"]*name[^"]*">[^<]{2,}</.test(html);
+              const labOk  = /href="[^"]*\/r\/lab\//.test(html);
+              okAgr = okAgr || (nameOk && labOk);
+            }
+          }
+          if(!okEdu) { console.error("EDU check failed: names not visible"); process.exit(1); }
+          if(!okAgr) { console.error("AGR check failed: names or /r/lab missing"); process.exit(1); }
+          console.log("Self-check passed: EDU & AGR rendered OK");
+          '
+
+      # === Cleaner / downstream ===
+      - name: Build cleaner
+        working-directory: tools/faculty-cleaner
+        run: pnpm run build || npm run build
+
+      - name: Run cleaner with captured HTMLs
+        env:
+          INPUT_DIR: captures
+          OUTPUT_DIR: cleaned
+        working-directory: tools/faculty-cleaner
+        run: |
+          node dist/runDir.js
+          echo "Cleaned outputs:" && ls -1 ../../cleaned || true
+
+      - name: Upload cleaned (artifact)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cleaned-html
+          path: cleaned/**
+
