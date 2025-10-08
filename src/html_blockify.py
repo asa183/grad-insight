@@ -21,6 +21,11 @@ ROLE_KEYWORDS = [
     "Lecturer","Senior Lecturer","Instructor","Research Fellow","Researcher","Senior Researcher","Postdoctoral"
 ]
 
+# Text length and traversal limits
+TEXT_MIN = 10
+TEXT_MAX = 30000  # keep below Google Sheets cell limits
+ASCEND_MAX = 8
+
 
 def _slugify(s: str) -> str:
     s = (s or "").strip()
