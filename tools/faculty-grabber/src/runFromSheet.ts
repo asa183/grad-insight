@@ -158,6 +158,15 @@ function toSlug(u: URL) {
   return `${host}-${tail}`;
 }
 
+function sanitizeName(s: string): string {
+  // Driveのファイル名として不向きな記号を除去（日本語は保持）
+  return (s || '')
+    .replace(/[\\/:*?"<>|]+/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 80);
+}
+
 async function main() {
   if (!SHEET_ID || !DRIVE_FOLDER_ID) {
     console.error('SHEET_ID and DRIVE_FOLDER_ID are required');
@@ -207,8 +216,8 @@ async function main() {
   const rows = (resp.data.values || []) as string[][];
   if (!rows.length) { console.error('Sheet empty'); process.exit(1); }
   const header = rows[0];
-  // Fixed columns per spec: C=url, J=有効, K=HTML
-  const urlCol = 2, enabledCol = 9, htmlCol = 10;
+  // Fixed columns per spec: A=大学名, B=研究科, C=url, J=有効, K=HTML
+  const univCol = 0, gradCol = 1, urlCol = 2, enabledCol = 9, htmlCol = 10;
 
   await fs.ensureDir('captures');
   let okCnt = 0, skipCnt = 0, failCnt = 0;
@@ -222,6 +231,9 @@ async function main() {
     const rowNo = i+1;
     if (!enabled) { console.log(`SKIP row=${rowNo} url=${url} (有効=false)`); skipCnt++; continue; }
     const site = detectSite(url);
+    const univ = (r[univCol] || '').toString();
+    const grad = (r[gradCol] || '').toString();
+    const prefix = sanitizeName(`${univ}${grad}`) || 'output';
     let method = chooseMethod(site);
 
     try {
@@ -244,7 +256,7 @@ async function main() {
       // Save local (artifact)
       const u = new URL(url); const slug = toSlug(u);
       const stamp = new Date().toISOString().replace(/[-:]/g,'').replace('T','_').slice(0,15);
-      const fname = `${slug}-${stamp}.html`;
+      const fname = `${prefix}-${slug}-${stamp}.html`;
       const fpath = path.join('captures', fname);
       await fs.writeFile(fpath, html, 'utf8');
 
