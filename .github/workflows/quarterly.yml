@@ -55,10 +55,11 @@ jobs:
   run:
     needs: build-targets
     runs-on: ubuntu-22.04
+    # Skip job entirely when matrix output is empty
+    if: ${{ needs.build-targets.outputs.matrix != '' }}
     strategy:
       fail-fast: false
-      # outputs.matrix が空のときでも fromJson が失敗しないようフォールバック
-      matrix: ${{ fromJson((needs.build-targets.outputs.matrix != '' && needs.build-targets.outputs.matrix) || '{"include": []}') }}
+      matrix: ${{ fromJson(needs.build-targets.outputs.matrix) }}
     # matrix が空ならジョブ自体をスキップ
     if: ${{ needs.build-targets.outputs.matrix != '' }}
     steps:

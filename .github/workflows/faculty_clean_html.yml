@@ -17,6 +17,27 @@ jobs:
       CONCURRENCY: '3'
     steps:
       - uses: actions/checkout@v4
+      - name: Setup Playwright (for grab)
+        working-directory: tools/faculty-grabber
+        run: |
+          npm install --no-audit --no-fund
+          npx playwright install --with-deps
+      - name: Grab rendered HTMLs (optional)
+        if: ${{ env.GRAB_INPUT != '' }}
+        env:
+          GRAB_INPUT: ${{ vars.GRAB_INPUT }}
+        working-directory: tools/faculty-grabber
+        run: |
+          npm run build
+          if [ -n "$GRAB_INPUT" ]; then
+            node dist/grab.js --input "$GRAB_INPUT" --out ../../captures --concurrency 2 --timeout 60000 --site auto --screenshot
+          fi
+      - name: Upload captures (artifact)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: captured-html
+          path: captures/**
       - uses: actions/setup-node@v4
         with:
           node-version: 20
