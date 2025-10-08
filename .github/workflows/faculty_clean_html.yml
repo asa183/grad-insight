@@ -32,7 +32,9 @@ jobs:
 
       - name: Build faculty-grabber
         working-directory: tools/faculty-grabber
-        run: npm run build
+        run: |
+          npm run build
+          echo "grabber dist contents:" && ls -la dist || true
 
       - name: Grab rendered HTMLs (main.outerHTML)
         working-directory: tools/faculty-grabber
@@ -51,6 +53,7 @@ jobs:
             CSV
             INPUT_PATH=../../urls.csv
           fi
+          mkdir -p ../../captures
           node dist/grab.js \
             --input "$INPUT_PATH" \
             --out ../../captures \
@@ -58,6 +61,7 @@ jobs:
             --timeout 60000 \
             --site auto \
             --screenshot
+          echo "captures tree:" && ls -la ../../captures || true
 
       - name: Upload captures (artifact)
         if: always()
