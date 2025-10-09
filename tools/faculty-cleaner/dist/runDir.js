@@ -5,10 +5,10 @@ async function main() {
     const inputDir = process.env.INPUT_DIR || 'captures';
     const outDir = process.env.OUTPUT_DIR || 'cleaned';
     await fs.ensureDir(outDir);
-    const files = (await fs.readdir(inputDir)).filter(f => f.endsWith('.html'));
+    const files = (await fs.readdir(inputDir).catch(() => [])).filter(f => f.endsWith('.html'));
     if (!files.length) {
-        console.error(`No .html files in ${inputDir}`);
-        process.exit(1);
+        console.warn(`No .html files in ${inputDir} — skip cleaning.`);
+        return;
     }
     console.log(`Cleaner processing ${files.length} files from ${inputDir} -> ${outDir}`);
     let ok = 0;
@@ -40,7 +40,6 @@ async function main() {
         }
     }
     console.log(`Cleaner summary: ok=${ok} fail=${fail}`);
-    if (ok === 0)
-        process.exit(1);
+    // クリーニング結果が 0 件でも後続の pushDir で判定するため非エラー終了
 }
 main().catch(err => { console.error(err); process.exit(1); });
