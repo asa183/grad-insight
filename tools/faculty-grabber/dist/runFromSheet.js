@@ -21,11 +21,25 @@ function detectSite(url) {
         return 'fish';
     return 'other';
 }
-function chooseMethod(site) {
+function chooseMethod(site, url) {
+    // 明示オーバーライドを最優先
     if (METHOD_OVERRIDE === 'http' || METHOD_OVERRIDE === 'playwright')
         return METHOD_OVERRIDE;
-    if (site === 'agr' || site === 'fish' || site === 'other')
-        return 'http';
+    // 既知の失敗/JS依存ドメインは強制 Playwright
+    if (url) {
+        try {
+            const h = new URL(url).hostname.toLowerCase();
+            if (/\.u-tokyo\.ac\.jp$/.test(h) ||
+                /^ist\.hokudai\.ac\.jp$/.test(h) ||
+                /^www\.ist\.hokudai\.ac\.jp$/.test(h) ||
+                /^chemsys\.t\.u-tokyo\.ac\.jp$/.test(h) ||
+                /^www\.f\.u-tokyo\.ac\.jp$/.test(h) || /^f\.u-tokyo\.ac\.jp$/.test(h)) {
+                return 'playwright';
+            }
+        }
+        catch { }
+    }
+    // デフォルトも Playwright（fetch 失敗箇所を最優先で救う）
     return 'playwright';
 }
 function truthy(v) {
@@ -45,10 +59,21 @@ function absolutize(u, base) {
     }
 }
 async function captureHttp(url) {
-    const res = await fetch(url, { redirect: 'follow' });
+    const ctrl = new AbortController();
+    const to = setTimeout(() => ctrl.abort(), 20000);
+    const headers = {
+        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+        'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+        'accept-language': 'ja,en-US;q=0.9,en;q=0.8',
+        'cache-control': 'no-cache',
+        'pragma': 'no-cache',
+        'upgrade-insecure-requests': '1',
+    };
+    const res = await fetch(url, { redirect: 'follow', headers, signal: ctrl.signal });
     if (!res.ok)
         throw new Error(`HTTP ${res.status}`);
     const raw = await res.text();
+    clearTimeout(to);
     const $ = cheerio.load(raw);
     const node = $('main').first();
     let outer = node.length ? $.html(node.get(0)) : $('body').length ? $.html($('body').get(0)) : raw;
@@ -83,14 +108,50 @@ async function capturePlaywright(url) {
     });
     await page.route('**/*', (route) => {
         const u = route.request().url();
-        if (/\.(ttf|woff2?|mp4|webm|gif)$/i.test(u))
+        // 大きな動画のみ中断。フォント等は許可してUI崩れを防ぐ
+        if (/\.(mp4|webm)$/i.test(u))
             return route.abort();
         return route.continue();
     });
     let html = '';
     try {
-        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 90000 });
         await page.waitForFunction(() => !!document.body, { timeout: 30000 });
+        // 同意/クッキーバナー対応
+        try {
+            const texts = [
+                '同意', '許可', '同意する', 'OK', 'Ok', 'オーケー', 'わかった', '閉じる', '閉',
+                'Accept', 'I agree', 'Agree', 'Accept all', 'Accept All', 'Consent', 'Allow', 'Continue'
+            ];
+            for (const t of texts) {
+                try {
+                    await page.getByRole('button', { name: new RegExp(t, 'i') }).first().click({ timeout: 1500 });
+                }
+                catch { }
+                try {
+                    await page.getByRole('link', { name: new RegExp(t, 'i') }).first().click({ timeout: 1500 });
+                }
+                catch { }
+            }
+            await page.evaluate(() => {
+                const match = (s) => /cookie|consent|同意|許可|ポップアップ|バナー|閉/.test(s);
+                const nodes = Array.from(document.querySelectorAll('button, a, [role="button"]'));
+                for (const el of nodes) {
+                    const label = (el.innerText || el.getAttribute('aria-label') || '').trim();
+                    if (label && match(label)) {
+                        try {
+                            el.click();
+                        }
+                        catch { }
+                    }
+                }
+            });
+            try {
+                await page.waitForLoadState('networkidle', { timeout: 20000 });
+            }
+            catch { }
+        }
+        catch { }
         // generic clicks
         await page.evaluate(() => {
             const sels = ['[aria-controls]', '[aria-expanded="false"]', '.accordion button', '.tab a', '.tab button', '.more a', '.more button'];
@@ -119,9 +180,10 @@ async function capturePlaywright(url) {
             }
         });
         try {
-            await page.waitForLoadState('networkidle', { timeout: 15000 });
+            await page.waitForLoadState('networkidle', { timeout: 30000 });
         }
         catch { }
+        await page.waitForTimeout(1000);
         // extract
         html = await page.evaluate(() => {
             const node = (document.querySelector('main') ?? document.body);
@@ -196,6 +258,7 @@ async function main() {
     }
     const sheets = google.sheets({ version: 'v4', auth: oauth });
     let drive = google.drive({ version: 'v3', auth: oauth });
+    console.log(`Grab mode: METHOD_OVERRIDE=${METHOD_OVERRIDE || '(auto-playwright)'}`);
     try {
         const about = await drive.about.get({ fields: 'user' });
         const email = about.data?.user?.emailAddress || '(unknown)';
@@ -258,21 +321,42 @@ async function main() {
         const univ = (r[univCol] || '').toString();
         const grad = (r[gradCol] || '').toString();
         const prefix = sanitizeName(`${univ}${grad}`) || 'output';
-        let method = chooseMethod(site);
+        let method = chooseMethod(site, url);
+        console.log(`[${rowNo}] chosen=${method} url=${url}`);
         try {
             let html = '';
             let metrics = {};
-            if (method === 'http') {
-                ({ html, metrics } = await captureHttp(url));
-                if (!selfCheck(site, method, metrics) && site === 'other') {
-                    // fallback to Playwright for others if http insufficient
-                    ({ html, metrics } = await capturePlaywright(url));
+            const tryHttp = async () => { ({ html, metrics } = await captureHttp(url)); };
+            const tryPw = async () => { ({ html, metrics } = await capturePlaywright(url)); };
+            // Playwright を必ず優先
+            try {
+                console.log(`[${rowNo}] try=playwright url=${url}`);
+                await tryPw();
+            }
+            catch (e) {
+                console.warn(`[${rowNo}] playwright failed: ${e?.message || e}; fallback to HTTP`);
+                console.log(`[${rowNo}] try=http url=${url}`);
+                await tryHttp();
+                method = 'http';
+            }
+            // それでも自己検査に不合格なら、もう一方も試す
+            if (!selfCheck(site, method, metrics)) {
+                console.warn(`[${rowNo}] self-check failed after ${method}; retry other method`);
+                if (method === 'http') {
+                    console.log(`[${rowNo}] retry=playwright url=${url}`);
+                    await tryPw();
                     method = 'playwright';
                 }
+                else {
+                    try {
+                        console.log(`[${rowNo}] retry=http url=${url}`);
+                        await tryHttp();
+                        method = 'http';
+                    }
+                    catch { }
+                }
             }
-            else {
-                ({ html, metrics } = await capturePlaywright(url));
-            }
+            console.log(`[${rowNo}] metrics staff=${metrics?.staff ?? '-'} rlab=${metrics?.rlab ?? '-'} fish=${metrics?.fish ?? '-'} names=${metrics?.names ?? '-'}`);
             if (!selfCheck(site, method, metrics)) {
                 console.log(`FAIL row=${rowNo} url=${url} reason=self-check`);
                 failCnt++;
@@ -316,7 +400,8 @@ async function main() {
         await sheets.spreadsheets.values.batchUpdate({ spreadsheetId: SHEET_ID, requestBody: { valueInputOption: 'RAW', data } });
     }
     console.log(`Summary: ok=${okCnt} skip=${skipCnt} fail=${failCnt}`);
-    if (okCnt === 0)
-        process.exit(1);
+    // ok が 0 件でもジョブ全体は継続できるよう非エラー終了
+    // （後段ステップで captures/ の有無を確認しつつ処理する）
+    // if (okCnt === 0) process.exit(1);
 }
 main().catch(err => { console.error(err); process.exit(1); });

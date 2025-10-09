@@ -8,6 +8,7 @@
     "build": "tsc -p .",
     "run:sheet": "node dist/runSheet.js",
     "run:dir": "node dist/runDir.js",
+    "run:pushdir": "node dist/pushDir.js",
     "test": "jest"
   },
   "dependencies": {
