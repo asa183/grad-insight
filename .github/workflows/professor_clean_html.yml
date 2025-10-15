@@ -53,6 +53,12 @@ jobs:
           echo "SHEET_NAME=$SHEET_NAME"
           echo "DRIVE_FOLDER_ID=$DRIVE_FOLDER_ID"
 
+      # === Install deps (no browsers) ===
+      - name: Install dependencies (grabber)
+        working-directory: tools/faculty-grabber
+        run: |
+          npm install --no-audit --no-fund
+
       # === Build grabber ===
       - name: Build faculty-grabber
         working-directory: tools/faculty-grabber
