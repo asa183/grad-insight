@@ -73,17 +73,34 @@ async function main() {
   let uploaded = 0;
   for (const f of files) {
     const base = f.replace(/\.clean\.html$/,'');
-    const metaPath = path.join(CAP_DIR, `${base}.meta.json`);
+    // Resolve meta path with robust CAP_DIR fallbacks
+    const metaRel = `${base}.meta.json`;
+    const candDirs = [
+      CAP_DIR,
+      path.resolve(process.cwd(), 'captures'),
+      path.resolve(process.cwd(), '../captures'),
+      path.resolve(process.cwd(), '../../captures'),
+    ].filter(Boolean);
+    let metaPath = '';
+    for (const d of candDirs) {
+      const p = path.join(d, metaRel);
+      try { if (await fs.pathExists(p)) { metaPath = p; break; } } catch {}
+    }
     let url = '';
     let rowIndex: number | undefined = undefined;
-    try { 
-      const meta = await fs.readJson(metaPath); 
-      url = String(meta.url || '');
-      const ri = (meta as any).row_index;
-      if (typeof ri === 'number' && isFinite(ri)) rowIndex = ri - 1; // 1-based in meta
-    } catch {}
+    if (metaPath) {
+      try {
+        const meta = await fs.readJson(metaPath);
+        url = String((meta as any).url || '');
+        const ri = (meta as any).row_index;
+        if (typeof ri === 'number' && isFinite(ri)) rowIndex = ri - 1; // 1-based in meta
+      } catch {}
+    }
     if (rowIndex == null) {
-      if (!url) { console.warn(`skip ${f}: url not found in meta`); continue; }
+      if (!url) {
+        console.warn(`skip ${f}: meta not found or url empty (tried: ${candDirs.join(' | ')})`);
+        continue;
+      }
       rowIndex = urlToRow.get(url);
     }
     if (rowIndex == null) { console.warn(`skip ${f}: url not found in sheet`); continue; }
