@@ -218,6 +218,7 @@ function sanitizeName(s: string): string {
 }
 
 async function main() {
+  const ALLOW_PLAYWRIGHT = (process.env.ALLOW_PLAYWRIGHT ?? '1') !== '0';
   if (!SHEET_ID || !DRIVE_FOLDER_ID) {
     console.error('SHEET_ID and DRIVE_FOLDER_ID are required');
     process.exit(2);
@@ -294,6 +295,7 @@ async function main() {
 
   await fs.ensureDir('captures');
   let okCnt = 0, skipCnt = 0, failCnt = 0;
+  const failedUrls: string[] = [];
 
   for (let i=1; i<rows.length; i++) {
     const r = rows[i] || [];
@@ -331,22 +333,23 @@ async function main() {
           await tryPw();
           method = 'playwright';
         }
-        if (!selfCheck(site, method, metrics)) {
-          console.warn(`[${rowNo}] self-check failed after ${method}; retry other method`);
-          if (method === 'http') {
-            console.log(`[${rowNo}] retry=playwright url=${url}`);
-            await tryPw(); method = 'playwright';
-          } else {
-            try {
-              console.log(`[${rowNo}] retry=http url=${url}`);
-              await tryHttp(); method = 'http';
-            } catch {}
-          }
+      if (!selfCheck(site, method, metrics)) {
+        console.warn(`[${rowNo}] self-check failed after ${method}; retry other method`);
+        if (method === 'http' && ALLOW_PLAYWRIGHT) {
+          console.log(`[${rowNo}] retry=playwright url=${url}`);
+          await tryPw(); method = 'playwright';
+        } else if (method === 'playwright') {
+          try {
+            console.log(`[${rowNo}] retry=http url=${url}`);
+            await tryHttp(); method = 'http';
+          } catch {}
         }
+      }
       }
       console.log(`[${rowNo}] metrics staff=${metrics?.staff ?? '-'} rlab=${metrics?.rlab ?? '-'} fish=${metrics?.fish ?? '-'} names=${metrics?.names ?? '-'}`);
       if (!selfCheck(site, method, metrics)) {
         console.log(`FAIL row=${rowNo} url=${url} reason=self-check`);
+        failedUrls.push(url);
         failCnt++; continue;
       }
 
@@ -373,12 +376,14 @@ async function main() {
       console.log(`OK row=${rowNo} url=${url} method=${method} site=${site} out=${fname} (no Drive upload at capture stage)`);
     } catch (e: any) {
       console.log(`FAIL row=${rowNo} url=${url} reason=${e?.message || String(e)}`);
+      failedUrls.push(url);
       failCnt++;
     }
   }
 
   // No sheet updates here — K/J are updated after cleaning in pushDir.
   console.log(`Summary: ok=${okCnt} skip=${skipCnt} fail=${failCnt}`);
+  try { await fs.writeJson(path.join('captures', '_summary.json'), { ok: okCnt, skip: skipCnt, fail: failCnt, failedUrls }, { spaces: 2 }); } catch {}
   // ok が 0 件でもジョブ全体は継続できるよう非エラー終了
   // （後段ステップで captures/ の有無を確認しつつ処理する）
   // if (okCnt === 0) process.exit(1);

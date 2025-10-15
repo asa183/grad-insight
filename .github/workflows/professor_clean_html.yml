@@ -53,20 +53,14 @@ jobs:
           echo "SHEET_NAME=$SHEET_NAME"
           echo "DRIVE_FOLDER_ID=$DRIVE_FOLDER_ID"
 
-      # === Playwright + grab ===
-      - name: Install Playwright browsers
-        working-directory: tools/faculty-grabber
-        run: |
-          npm install --no-audit --no-fund
-          npx playwright install --with-deps
-
+      # === Build grabber ===
       - name: Build faculty-grabber
         working-directory: tools/faculty-grabber
         run: |
           npm run build
           echo "grabber dist contents:" && ls -la dist || true
 
-      - name: Grab from Google Sheets (capture only; no Drive upload)
+      - name: Grab HTTP-first (no Playwright; capture only)
         env:
           SHEET_ID: ${{ env.SHEET_ID }}
           SHEET_NAME: ${{ env.SHEET_NAME }}
@@ -75,6 +69,42 @@ jobs:
           OAUTH_CLIENT_ID: ${{ env.OAUTH_CLIENT_ID || secrets.OAUTH_CLIENT_ID }}
           OAUTH_CLIENT_SECRET: ${{ env.OAUTH_CLIENT_SECRET || secrets.OAUTH_CLIENT_SECRET }}
           OAUTH_REFRESH_TOKEN: ${{ env.OAUTH_REFRESH_TOKEN || secrets.OAUTH_REFRESH_TOKEN }}
+          METHOD: http
+          ALLOW_PLAYWRIGHT: '0'
+        run: |
+          node tools/faculty-grabber/dist/runFromSheet.js
+
+      - name: Check if Playwright is needed
+        id: chk
+        run: |
+          if [ -f captures/_summary.json ]; then
+            fail=$(node -e "console.log(require('./captures/_summary.json').fail||0)")
+          else
+            fail=0
+          fi
+          echo "fail=$fail"
+          if [ "$fail" -gt 0 ]; then echo "needs_pw=1" >> $GITHUB_OUTPUT; else echo "needs_pw=0" >> $GITHUB_OUTPUT; fi
+
+      # === Install Playwright only if needed ===
+      - name: Install Playwright browsers
+        if: steps.chk.outputs.needs_pw == '1'
+        working-directory: tools/faculty-grabber
+        run: |
+          npm install --no-audit --no-fund
+          npx playwright install --with-deps
+
+      - name: Grab with Playwright fallback (capture only)
+        if: steps.chk.outputs.needs_pw == '1'
+        env:
+          SHEET_ID: ${{ env.SHEET_ID }}
+          SHEET_NAME: ${{ env.SHEET_NAME }}
+          DRIVE_FOLDER_ID: ${{ env.DRIVE_FOLDER_ID }}
+          GOOGLE_CREDENTIALS_JSON: ${{ env.GOOGLE_CREDENTIALS_JSON || secrets.GOOGLE_CREDENTIALS_JSON }}
+          OAUTH_CLIENT_ID: ${{ env.OAUTH_CLIENT_ID || secrets.OAUTH_CLIENT_ID }}
+          OAUTH_CLIENT_SECRET: ${{ env.OAUTH_CLIENT_SECRET || secrets.OAUTH_CLIENT_SECRET }}
+          OAUTH_REFRESH_TOKEN: ${{ env.OAUTH_REFRESH_TOKEN || secrets.OAUTH_REFRESH_TOKEN }}
+          METHOD: http
+          ALLOW_PLAYWRIGHT: '1'
         run: |
           node tools/faculty-grabber/dist/runFromSheet.js
 
