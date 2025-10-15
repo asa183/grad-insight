@@ -85,7 +85,8 @@ async function captureHttp(url: string) {
   const rlab = anchors.filter((h: string) => h.includes('/r/lab/')).length;
   const fish = anchors.filter((h: string) => h.includes('/faculty-member/')).length;
   const names = $$('.name, .m-name, dt.name').toArray().filter((el: any) => ($$(el).text() || '').trim().length >= 2).length;
-  return { html: outer, metrics: { staff, rlab, fish, names } };
+  const textLen = $$.root().text().replace(/\s+/g, ' ').trim().length;
+  return { html: outer, metrics: { staff, rlab, fish, names, textLen } };
 }
 
 async function capturePlaywright(url: string) {
@@ -170,10 +171,14 @@ async function capturePlaywright(url: string) {
   const rlab = anchors.filter((h: string) => h.includes('/r/lab/')).length;
   const fish = anchors.filter((h: string) => h.includes('/faculty-member/')).length;
   const names = $('.name, .m-name, dt.name').toArray().filter((el: any) => ($(el).text() || '').trim().length >= 2).length;
-  return { html, metrics: { staff, rlab, fish, names } };
+  const textLen = $.root().text().replace(/\s+/g, ' ').trim().length;
+  return { html, metrics: { staff, rlab, fish, names, textLen } };
 }
 
 function selfCheck(site: SiteKind, method: Method, metrics: any): boolean {
+  // Require minimum visible text to avoid tag-only outputs
+  const textOk = (metrics?.textLen ?? 0) > 50;
+  if (!textOk) return false;
   if (site === 'edu' || site === 'let') {
     return (metrics.staff >= 1) || (metrics.names >= 1);
   }
@@ -369,6 +374,7 @@ async function main() {
         saved_at_iso: new Date().toISOString(),
         output: path.resolve(fpath),
         metrics,
+        row_index: rowNo,
       };
       try { await fs.writeJson(metaPath, capMeta, { spaces: 2 }); } catch {}
 

@@ -75,9 +75,17 @@ async function main() {
     const base = f.replace(/\.clean\.html$/,'');
     const metaPath = path.join(CAP_DIR, `${base}.meta.json`);
     let url = '';
-    try { const meta = await fs.readJson(metaPath); url = String(meta.url || ''); } catch {}
-    if (!url) { console.warn(`skip ${f}: url not found in meta`); continue; }
-    const rowIndex = urlToRow.get(url);
+    let rowIndex: number | undefined = undefined;
+    try { 
+      const meta = await fs.readJson(metaPath); 
+      url = String(meta.url || '');
+      const ri = (meta as any).row_index;
+      if (typeof ri === 'number' && isFinite(ri)) rowIndex = ri - 1; // 1-based in meta
+    } catch {}
+    if (rowIndex == null) {
+      if (!url) { console.warn(`skip ${f}: url not found in meta`); continue; }
+      rowIndex = urlToRow.get(url);
+    }
     if (rowIndex == null) { console.warn(`skip ${f}: url not found in sheet`); continue; }
 
     // upload to Drive
