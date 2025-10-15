@@ -60,8 +60,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.build-targets.outputs.matrix) }}
-    # matrix が空ならジョブ自体をスキップ
-    if: ${{ needs.build-targets.outputs.matrix != '' }}
+    # matrix が空でも strategy レベルで空行列になれば自動的に実行されないため、重複の if は削除
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
