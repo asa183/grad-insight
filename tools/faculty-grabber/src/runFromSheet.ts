@@ -294,7 +294,6 @@ async function main() {
 
   await fs.ensureDir('captures');
   let okCnt = 0, skipCnt = 0, failCnt = 0;
-  const updates: { r: number, link: string }[] = [];
 
   for (let i=1; i<rows.length; i++) {
     const r = rows[i] || [];
@@ -364,39 +363,15 @@ async function main() {
       };
       try { await fs.writeJson(metaPath, capMeta, { spaces: 2 }); } catch {}
 
-      // Upload to Drive（OAuthを優先）
-      let created;
-      try {
-        created = await drive.files.create({
-          requestBody: { name: fname, parents: [DRIVE_FOLDER_ID], mimeType: 'text/html' },
-          media: { mimeType: 'text/html', body: fs.createReadStream(fpath) as any }, fields: 'id, webViewLink', supportsAllDrives: true,
-        } as any);
-      } catch (e:any) {
-        const msg = e?.message || String(e);
-        console.error('Drive upload error:', msg);
-        throw e;
-      }
-      const id = created.data.id as string;
-      await ensureLinkSharing(drive, id);
-      const driveMeta = await drive.files.get({ fileId: id, fields: 'id, webViewLink', supportsAllDrives: true });
-      const link = driveMeta.data.webViewLink || `https://drive.google.com/file/d/${id}/view`;
-
-      updates.push({ r: rowNo, link });
       okCnt++;
-      console.log(`OK row=${rowNo} url=${url} method=${method} site=${site} out=${fname} drive=${link}`);
+      console.log(`OK row=${rowNo} url=${url} method=${method} site=${site} out=${fname} (no Drive upload at capture stage)`);
     } catch (e: any) {
       console.log(`FAIL row=${rowNo} url=${url} reason=${e?.message || String(e)}`);
       failCnt++;
     }
   }
 
-  if (updates.length) {
-    const data = updates.flatMap(u => [
-      { range: `${sheetName}!K${u.r}`, values: [[u.link]] },
-      { range: `${sheetName}!J${u.r}`, values: [[false]] },
-    ]);
-    await sheets.spreadsheets.values.batchUpdate({ spreadsheetId: SHEET_ID, requestBody: { valueInputOption: 'USER_ENTERED', data } });
-  }
+  // No sheet updates here — K/J are updated after cleaning in pushDir.
   console.log(`Summary: ok=${okCnt} skip=${skipCnt} fail=${failCnt}`);
   // ok が 0 件でもジョブ全体は継続できるよう非エラー終了
   // （後段ステップで captures/ の有無を確認しつつ処理する）

@@ -66,7 +66,7 @@ jobs:
           npm run build
           echo "grabber dist contents:" && ls -la dist || true
 
-      - name: Grab from Google Sheets and push to Drive (J列=有効のみ / H列=出典URL)
+      - name: Grab from Google Sheets (capture only; no Drive upload)
         env:
           SHEET_ID: ${{ env.SHEET_ID }}
           SHEET_NAME: ${{ env.SHEET_NAME }}
@@ -108,7 +108,7 @@ jobs:
           node dist/runDir.js
           echo "cleaned dir:" && ls -la ../../cleaned || true
 
-      - name: Write to Sheets & upload to Drive (K列のみ更新)
+      - name: Write to Sheets & upload to Drive (cleaned only; K列更新→J列OFF)
         env:
           INPUT_DIR: ../../cleaned
           CAP_DIR: ../../captures
