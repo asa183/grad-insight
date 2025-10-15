@@ -86,7 +86,9 @@ async function main() {
   const updates: { range: string, values: any[][] }[] = [];
   let uploaded = 0;
   for (const f of files) {
-    const base = source === 'captures' ? f.replace(/\.html$/i,'') : f.replace(/\.clean\.html$/,'');
+    const base = source === 'captures'
+      ? f.replace(/\.html$/i,'')
+      : f.replace(/\.clean\.(html|txt)$/i,'');
     // Resolve meta path with robust CAP_DIR fallbacks
     const metaRel = `${base}.meta.json`;
     const candDirs = [
