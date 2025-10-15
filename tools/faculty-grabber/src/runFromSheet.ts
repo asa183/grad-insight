@@ -56,7 +56,19 @@ function absolutize(u: string, base: string): string {
   try { return new URL(u, base).toString(); } catch { return u; }
 }
 
+function normalizeUrl(u: string): string {
+  try {
+    const x = new URL(u);
+    if (x.hostname.endsWith('researchers.general.hokudai.ac.jp') && x.protocol === 'http:') {
+      x.protocol = 'https:';
+      return x.toString();
+    }
+    return u;
+  } catch { return u; }
+}
+
 async function captureHttp(url: string) {
+  url = normalizeUrl(url);
   const ctrl = new AbortController();
   const to = setTimeout(() => ctrl.abort(), 20000);
   const headers = {
@@ -90,12 +102,15 @@ async function captureHttp(url: string) {
 }
 
 async function capturePlaywright(url: string) {
+  url = normalizeUrl(url);
   const browser = await chromium.launch({ headless: true });
   const ctx = await browser.newContext({
     userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
     locale: 'ja-JP', timezoneId: 'Asia/Tokyo', viewport: { width: 1366, height: 900 }, javaScriptEnabled: true,
+    ignoreHTTPSErrors: true,
   });
   const page = await ctx.newPage();
+  page.setDefaultNavigationTimeout(120000);
   await page.addInitScript(() => {
     Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
     // @ts-ignore
@@ -114,7 +129,7 @@ async function capturePlaywright(url: string) {
 
   let html = '';
   try {
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 90000 });
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 120000 });
     await page.waitForFunction(() => !!document.body, { timeout: 30000 });
 
     // 同意/クッキーバナー対応
@@ -349,8 +364,14 @@ async function main() {
       // HTTP優先（失敗・不十分ならPlaywrightへフォールバック）
       if (METHOD_OVERRIDE === 'playwright' || (isForced && ALLOW_PLAYWRIGHT)) {
         console.log(`[${rowNo}] try=playwright url=${url}`);
-        await tryPw();
-        method = 'playwright';
+        try {
+          await tryPw();
+          method = 'playwright';
+        } catch (e) {
+          console.warn(`[${rowNo}] playwright goto failed: ${(e as any)?.message || e}; try HTTP as fallback`);
+          await tryHttp();
+          method = 'http';
+        }
       } else {
         try {
           console.log(`[${rowNo}] try=http url=${url}`);
