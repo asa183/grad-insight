@@ -96,12 +96,12 @@ async function main() {
     const r1 = rowIndex + 1;
     // 教授版要件: K列(HTML) 更新 + J列をFALSEへ
     updates.push({ range: `${SHEET_NAME}!K${r1}`, values: [[link]] });
-    updates.push({ range: `${SHEET_NAME}!J${r1}`, values: [['FALSE']] });
+    updates.push({ range: `${SHEET_NAME}!J${r1}`, values: [[false]] });
     uploaded++;
   }
 
   if (updates.length) {
-    await sheets.spreadsheets.values.batchUpdate({ spreadsheetId: SHEET_ID, requestBody: { valueInputOption: 'RAW', data: updates } });
+    await sheets.spreadsheets.values.batchUpdate({ spreadsheetId: SHEET_ID, requestBody: { valueInputOption: 'USER_ENTERED', data: updates } });
   }
   console.log(`Push summary: uploaded=${uploaded}`);
   // アップロード 0 件でも非エラー終了（セル更新なし）

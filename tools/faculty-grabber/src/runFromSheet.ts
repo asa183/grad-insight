@@ -270,6 +270,14 @@ async function main() {
   // Columns: A=大学名, B=研究科, J=有効, K=HTML は固定。
   // URL 列はデフォルト検出だが、`URL_COL` が指定されていればその列を使用（0-based）。
   const univCol = 0, gradCol = 1, enabledCol = 9, htmlCol = 10;
+  const nameCol = (() => {
+    const candidates = ['氏名','教員名','名前','name'];
+    for (let i = 0; i < header.length; i++) {
+      const s = String(header[i] || '').trim().toLowerCase();
+      if (candidates.includes(s)) return i;
+    }
+    return 4; // fallback: E列
+  })();
   const detectUrlCol = (): number => {
     // env override
     const ucol = process.env.URL_COL ? Number(process.env.URL_COL) : NaN;
@@ -298,7 +306,8 @@ async function main() {
     const site = detectSite(url);
     const univ = (r[univCol] || '').toString();
     const grad = (r[gradCol] || '').toString();
-    const prefix = sanitizeName(`${univ}${grad}`) || 'output';
+    const person = (r[nameCol] || '').toString();
+    const prefix = sanitizeName(`${person}_${univ}`) || 'output';
     let method = chooseMethod(site, url);
     console.log(`[${rowNo}] chosen=${method} url=${url}`);
 
@@ -384,9 +393,9 @@ async function main() {
   if (updates.length) {
     const data = updates.flatMap(u => [
       { range: `${sheetName}!K${u.r}`, values: [[u.link]] },
-      { range: `${sheetName}!J${u.r}`, values: [['FALSE']] },
+      { range: `${sheetName}!J${u.r}`, values: [[false]] },
     ]);
-    await sheets.spreadsheets.values.batchUpdate({ spreadsheetId: SHEET_ID, requestBody: { valueInputOption: 'RAW', data } });
+    await sheets.spreadsheets.values.batchUpdate({ spreadsheetId: SHEET_ID, requestBody: { valueInputOption: 'USER_ENTERED', data } });
   }
   console.log(`Summary: ok=${okCnt} skip=${skipCnt} fail=${failCnt}`);
   // ok が 0 件でもジョブ全体は継続できるよう非エラー終了
