@@ -165,11 +165,11 @@ jobs:
 
       # (cleaner already built and executed above)
 
-      - name: Write to Sheets & upload to Drive (cleaned only; K列更新→J列OFF)
+      - name: Write to Sheets & upload to Drive (cleaned TXT only; K列更新→J列OFF)
         env:
           INPUT_DIR: ../../cleaned
           CAP_DIR: ../../captures
-          UPLOAD_SOURCE: captures
+          UPLOAD_SOURCE: cleaned
           SHEET_ID: ${{ env.SHEET_ID }}
           SHEET_NAME: ${{ env.SHEET_NAME }}
           DRIVE_FOLDER_ID: ${{ env.DRIVE_FOLDER_ID }}

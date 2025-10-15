@@ -49,8 +49,8 @@ async function main() {
     files = (await fs.readdir(CAP_DIR).catch(() => [] as string[])).filter(f => f.endsWith('.html'));
   } else {
     files = (await fs.readdir(INPUT_DIR).catch(() => [] as string[])).filter(f => /\.clean\.(html|txt)$/i.test(f));
-    if (!files.length) {
-      // fallback to captures artifact HTMLs
+    if (!files.length && UPLOAD_SOURCE === 'auto') {
+      // fallback to captures artifact HTMLs only in auto mode
       source = 'captures';
       files = (await fs.readdir(CAP_DIR).catch(() => [] as string[])).filter(f => f.endsWith('.html'));
     }
