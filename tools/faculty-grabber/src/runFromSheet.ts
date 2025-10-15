@@ -340,7 +340,7 @@ async function main() {
       const fpath = path.join('captures', fname);
       await fs.writeFile(fpath, html, 'utf8');
       const metaPath = path.join('captures', `${prefix}-${slug}-${stamp}.meta.json`);
-      const meta = {
+      const capMeta = {
         url,
         university: univ || null,
         graduate_school: grad || null,
@@ -350,7 +350,7 @@ async function main() {
         output: path.resolve(fpath),
         metrics,
       };
-      try { await fs.writeJson(metaPath, meta, { spaces: 2 }); } catch {}
+      try { await fs.writeJson(metaPath, capMeta, { spaces: 2 }); } catch {}
 
       // Upload to Drive（OAuthを優先）
       let created;
@@ -366,8 +366,8 @@ async function main() {
       }
       const id = created.data.id as string;
       await ensureLinkSharing(drive, id);
-      const meta = await drive.files.get({ fileId: id, fields: 'id, webViewLink', supportsAllDrives: true });
-      const link = meta.data.webViewLink || `https://drive.google.com/file/d/${id}/view`;
+      const driveMeta = await drive.files.get({ fileId: id, fields: 'id, webViewLink', supportsAllDrives: true });
+      const link = driveMeta.data.webViewLink || `https://drive.google.com/file/d/${id}/view`;
 
       updates.push({ r: rowNo, link });
       okCnt++;
