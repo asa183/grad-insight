@@ -268,9 +268,12 @@ async function main() {
   if (!rows.length) { console.error('Sheet empty'); process.exit(1); }
   const header = rows[0];
   // Columns: A=大学名, B=研究科, J=有効, K=HTML は固定。
-  // URL 列は研究科(C) もしくは 教授/研究室(H: 出典URL) など変動するためヘッダ名で検出する。
+  // URL 列はデフォルト検出だが、`URL_COL` が指定されていればその列を使用（0-based）。
   const univCol = 0, gradCol = 1, enabledCol = 9, htmlCol = 10;
   const detectUrlCol = (): number => {
+    // env override
+    const ucol = process.env.URL_COL ? Number(process.env.URL_COL) : NaN;
+    if (!Number.isNaN(ucol) && ucol >= 0) return ucol;
     const candidates = ['出典url','url','研究科url'];
     for (let i = 0; i < header.length; i++) {
       const s = String(header[i] || '').trim().toLowerCase();
@@ -379,7 +382,10 @@ async function main() {
   }
 
   if (updates.length) {
-    const data = updates.map(u => ({ range: `${sheetName}!K${u.r}`, values: [[u.link]] }));
+    const data = updates.flatMap(u => [
+      { range: `${sheetName}!K${u.r}`, values: [[u.link]] },
+      { range: `${sheetName}!J${u.r}`, values: [['FALSE']] },
+    ]);
     await sheets.spreadsheets.values.batchUpdate({ spreadsheetId: SHEET_ID, requestBody: { valueInputOption: 'RAW', data } });
   }
   console.log(`Summary: ok=${okCnt} skip=${skipCnt} fail=${failCnt}`);

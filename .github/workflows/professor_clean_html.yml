@@ -6,6 +6,7 @@ on:
       sheet_id:
         description: "Override SHEET_ID (optional)"
         required: false
+        default: 160q2zqD-7oiFzuXcvTl5eEjC0dkmwrMuInTzSP_6Pwc
         type: string
       sheet_name:
         description: "Sheet tab name"
@@ -30,6 +31,7 @@ jobs:
       OAUTH_CLIENT_ID: ${{ secrets.OAUTH_CLIENT_ID }}
       OAUTH_CLIENT_SECRET: ${{ secrets.OAUTH_CLIENT_SECRET }}
       OAUTH_REFRESH_TOKEN: ${{ secrets.OAUTH_REFRESH_TOKEN }}
+      URL_COL: '7'
       # Prefer SHEET_ID2 for MERGED; allow lowercase names; then fallback to SHEET_ID
       SHEET_ID: ${{ inputs.sheet_id || secrets.SHEET_ID2 || secrets.sheet_id2 || vars.SHEET_ID2 || vars.sheet_id2 || secrets.SHEET_ID }}
       SHEET_NAME: ${{ inputs.sheet_name || secrets.SHEET_NAME2 || secrets.sheet_name2 || vars.SHEET_NAME2 || vars.sheet_name2 || 'MERGED' }}
@@ -114,6 +116,9 @@ jobs:
           SHEET_NAME: ${{ env.SHEET_NAME }}
           DRIVE_FOLDER_ID: ${{ env.DRIVE_FOLDER_ID }}
           GOOGLE_CREDENTIALS_JSON: ${{ env.GOOGLE_CREDENTIALS_JSON || secrets.GOOGLE_CREDENTIALS_JSON }}
+          OAUTH_CLIENT_ID: ${{ env.OAUTH_CLIENT_ID || secrets.OAUTH_CLIENT_ID }}
+          OAUTH_CLIENT_SECRET: ${{ env.OAUTH_CLIENT_SECRET || secrets.OAUTH_CLIENT_SECRET }}
+          OAUTH_REFRESH_TOKEN: ${{ env.OAUTH_REFRESH_TOKEN || secrets.OAUTH_REFRESH_TOKEN }}
         working-directory: tools/faculty-cleaner
         run: |
           npm run run:pushdir

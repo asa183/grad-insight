@@ -6,6 +6,9 @@ const SHEET_ID = process.env.SHEET_ID || '';
 const SHEET_NAME = process.env.SHEET_NAME || 'Examples';
 const DRIVE_FOLDER_ID = process.env.DRIVE_FOLDER_ID || '';
 const GOOGLE_CREDENTIALS_JSON = process.env.GOOGLE_CREDENTIALS_JSON;
+const OAUTH_CLIENT_ID = process.env.OAUTH_CLIENT_ID || '';
+const OAUTH_CLIENT_SECRET = process.env.OAUTH_CLIENT_SECRET || '';
+const OAUTH_REFRESH_TOKEN = process.env.OAUTH_REFRESH_TOKEN || '';
 
 if (!SHEET_ID || !DRIVE_FOLDER_ID) {
   console.error('SHEET_ID and DRIVE_FOLDER_ID are required');
@@ -13,6 +16,15 @@ if (!SHEET_ID || !DRIVE_FOLDER_ID) {
 }
 
 async function getAuth() {
+  if (OAUTH_CLIENT_ID && OAUTH_CLIENT_SECRET && OAUTH_REFRESH_TOKEN) {
+    const oauth2 = new google.auth.OAuth2({
+      clientId: OAUTH_CLIENT_ID,
+      clientSecret: OAUTH_CLIENT_SECRET,
+      redirectUri: 'urn:ietf:wg:oauth:2.0:oob',
+    } as any);
+    oauth2.setCredentials({ refresh_token: OAUTH_REFRESH_TOKEN });
+    return oauth2 as any;
+  }
   if (GOOGLE_CREDENTIALS_JSON) {
     const creds = JSON.parse(GOOGLE_CREDENTIALS_JSON);
     const auth = new google.auth.GoogleAuth({ credentials: creds, scopes: ['https://www.googleapis.com/auth/spreadsheets','https://www.googleapis.com/auth/drive'] });
@@ -40,6 +52,8 @@ async function main() {
   const rows = (resp.data.values || []) as string[][];
   const header = rows[0] || [];
   const detectUrlCol = (): number => {
+    const ucol = process.env.URL_COL ? Number(process.env.URL_COL) : NaN;
+    if (!Number.isNaN(ucol) && ucol >= 0) return ucol;
     const candidates = ['出典url','url','研究科url'];
     for (let i = 0; i < header.length; i++) {
       const s = String(header[i] || '').trim().toLowerCase();
@@ -80,8 +94,9 @@ async function main() {
     const link = meta.data.webViewLink || `https://drive.google.com/file/d/${id}/view`;
 
     const r1 = rowIndex + 1;
-    // 教授版要件: K列(HTML) のみ更新（L〜O は触らない）
+    // 教授版要件: K列(HTML) 更新 + J列をFALSEへ
     updates.push({ range: `${SHEET_NAME}!K${r1}`, values: [[link]] });
+    updates.push({ range: `${SHEET_NAME}!J${r1}`, values: [['FALSE']] });
     uploaded++;
   }
 
