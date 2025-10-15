@@ -40,8 +40,22 @@ async function ensureAnyoneReader(drive: any, fileId: string) {
 async function main() {
   const INPUT_DIR = process.env.INPUT_DIR || 'cleaned';
   const CAP_DIR = process.env.CAP_DIR || 'captures';
-  const files = (await fs.readdir(INPUT_DIR).catch(() => [] as string[])).filter(f => /\.clean\.(html|txt)$/i.test(f));
-  if (!files.length) { console.warn(`no clean html in ${INPUT_DIR} — nothing to push.`); return; }
+  const UPLOAD_SOURCE = (process.env.UPLOAD_SOURCE || 'auto').toLowerCase(); // 'auto' | 'cleaned' | 'captures'
+
+  let source: 'cleaned'|'captures' = 'cleaned';
+  let files: string[] = [];
+  if (UPLOAD_SOURCE === 'captures') {
+    source = 'captures';
+    files = (await fs.readdir(CAP_DIR).catch(() => [] as string[])).filter(f => f.endsWith('.html'));
+  } else {
+    files = (await fs.readdir(INPUT_DIR).catch(() => [] as string[])).filter(f => /\.clean\.(html|txt)$/i.test(f));
+    if (!files.length) {
+      // fallback to captures artifact HTMLs
+      source = 'captures';
+      files = (await fs.readdir(CAP_DIR).catch(() => [] as string[])).filter(f => f.endsWith('.html'));
+    }
+  }
+  if (!files.length) { console.warn(`no files to push (source=${source}). INPUT_DIR=${INPUT_DIR} CAP_DIR=${CAP_DIR}`); return; }
 
   const auth = await getAuth();
   const drive = google.drive({ version: 'v3', auth: auth as any });
@@ -72,7 +86,7 @@ async function main() {
   const updates: { range: string, values: any[][] }[] = [];
   let uploaded = 0;
   for (const f of files) {
-    const base = f.replace(/\.clean\.html$/,'');
+    const base = source === 'captures' ? f.replace(/\.html$/i,'') : f.replace(/\.clean\.html$/,'');
     // Resolve meta path with robust CAP_DIR fallbacks
     const metaRel = `${base}.meta.json`;
     const candDirs = [
@@ -106,9 +120,11 @@ async function main() {
     if (rowIndex == null) { console.warn(`skip ${f}: url not found in sheet`); continue; }
 
     // upload to Drive
-    const filePath = path.join(INPUT_DIR, f);
-    const isTxt = /\.clean\.txt$/i.test(f);
-    const name = f.replace(/\.clean\.(html|txt)$/i, '') + (isTxt ? '.txt' : '.html');
+    const filePath = source === 'captures' ? path.join(CAP_DIR, f) : path.join(INPUT_DIR, f);
+    const isTxt = source !== 'captures' && /\.clean\.txt$/i.test(f);
+    const name = (source === 'captures'
+      ? f.replace(/\.html$/i, '') + '.html'
+      : f.replace(/\.clean\.(html|txt)$/i, '') + (isTxt ? '.txt' : '.html'));
     const mime = isTxt ? 'text/plain' : 'text/html';
     const created = await drive.files.create({
       requestBody: { name, parents: [DRIVE_FOLDER_ID], mimeType: mime },
