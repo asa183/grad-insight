@@ -42,20 +42,15 @@ async function main() {
   const CAP_DIR = process.env.CAP_DIR || 'captures';
   const UPLOAD_SOURCE = (process.env.UPLOAD_SOURCE || 'auto').toLowerCase(); // 'auto' | 'cleaned' | 'captures'
 
+  // Strict policy: upload only cleaned text outputs
   let source: 'cleaned'|'captures' = 'cleaned';
-  let files: string[] = [];
-  if (UPLOAD_SOURCE === 'captures') {
+  let files: string[] = (await fs.readdir(INPUT_DIR).catch(() => [] as string[])).filter(f => /\.clean\.txt$/i.test(f));
+  if (!files.length && UPLOAD_SOURCE === 'auto') {
+    // In auto mode, allow fallback if cleaned text is missing (but still prefer .clean.txt only if present later)
     source = 'captures';
-    files = (await fs.readdir(CAP_DIR).catch(() => [] as string[])).filter(f => f.endsWith('.html'));
-  } else {
-    files = (await fs.readdir(INPUT_DIR).catch(() => [] as string[])).filter(f => /\.clean\.(html|txt)$/i.test(f));
-    if (!files.length && UPLOAD_SOURCE === 'auto') {
-      // fallback to captures artifact HTMLs only in auto mode
-      source = 'captures';
-      files = (await fs.readdir(CAP_DIR).catch(() => [] as string[])).filter(f => f.endsWith('.html'));
-    }
+    files = []; // Do not upload raw HTML under strict text-only policy
   }
-  if (!files.length) { console.warn(`no files to push (source=${source}). INPUT_DIR=${INPUT_DIR} CAP_DIR=${CAP_DIR}`); return; }
+  if (!files.length) { console.warn(`no cleaned text files to push. INPUT_DIR=${INPUT_DIR}`); return; }
 
   const auth = await getAuth();
   const drive = google.drive({ version: 'v3', auth: auth as any });
@@ -86,9 +81,7 @@ async function main() {
   const updates: { range: string, values: any[][] }[] = [];
   let uploaded = 0;
   for (const f of files) {
-    const base = source === 'captures'
-      ? f.replace(/\.html$/i,'')
-      : f.replace(/\.clean\.(html|txt)$/i,'');
+    const base = f.replace(/\.clean\.txt$/i,'');
     // Resolve meta path with robust CAP_DIR fallbacks
     const metaRel = `${base}.meta.json`;
     const candDirs = [
@@ -122,12 +115,9 @@ async function main() {
     if (rowIndex == null) { console.warn(`skip ${f}: url not found in sheet`); continue; }
 
     // upload to Drive
-    const filePath = source === 'captures' ? path.join(CAP_DIR, f) : path.join(INPUT_DIR, f);
-    const isTxt = source !== 'captures' && /\.clean\.txt$/i.test(f);
-    const name = (source === 'captures'
-      ? f.replace(/\.html$/i, '') + '.html'
-      : f.replace(/\.clean\.(html|txt)$/i, '') + (isTxt ? '.txt' : '.html'));
-    const mime = isTxt ? 'text/plain' : 'text/html';
+    const filePath = path.join(INPUT_DIR, f);
+    const name = f.replace(/\.clean\.txt$/i, '') + '.txt';
+    const mime = 'text/plain';
     const created = await drive.files.create({
       requestBody: { name, parents: [DRIVE_FOLDER_ID], mimeType: mime },
       media: { mimeType: mime, body: await fs.readFile(filePath, 'utf8') },
