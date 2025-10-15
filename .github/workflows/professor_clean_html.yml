@@ -1,0 +1,100 @@
+name: Professor Profiles Clean HTML
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  run:
+    runs-on: ubuntu-22.04
+    env:
+      GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+      OAUTH_CLIENT_ID: ${{ secrets.OAUTH_CLIENT_ID }}
+      OAUTH_CLIENT_SECRET: ${{ secrets.OAUTH_CLIENT_SECRET }}
+      OAUTH_REFRESH_TOKEN: ${{ secrets.OAUTH_REFRESH_TOKEN }}
+      SHEET_ID: ${{ secrets.SHEET_ID }}
+      SHEET_NAME: MERGED
+      # 保存先（教授・研究室用）
+      DRIVE_FOLDER_ID: 1Xp-oLxyYgqx6A5QS0bWYNkRkhf0hN_LG
+      CONCURRENCY: '3'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # === Playwright + grab ===
+      - name: Install Playwright browsers
+        working-directory: tools/faculty-grabber
+        run: |
+          npm install --no-audit --no-fund
+          npx playwright install --with-deps
+
+      - name: Build faculty-grabber
+        working-directory: tools/faculty-grabber
+        run: |
+          npm run build
+          echo "grabber dist contents:" && ls -la dist || true
+
+      - name: Grab from Google Sheets and push to Drive (J列=有効のみ / H列=出典URL)
+        env:
+          SHEET_ID: ${{ secrets.SHEET_ID }}
+          SHEET_NAME: ${{ env.SHEET_NAME }}
+          DRIVE_FOLDER_ID: ${{ env.DRIVE_FOLDER_ID }}
+          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+          OAUTH_CLIENT_ID: ${{ secrets.OAUTH_CLIENT_ID }}
+          OAUTH_CLIENT_SECRET: ${{ secrets.OAUTH_CLIENT_SECRET }}
+          OAUTH_REFRESH_TOKEN: ${{ secrets.OAUTH_REFRESH_TOKEN }}
+        run: |
+          node tools/faculty-grabber/dist/runFromSheet.js
+
+      - name: Upload captures (artifact)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: captured-html
+          path: captures/**
+          if-no-files-found: ignore
+
+      # === Self-check（今回処理分のみ判定） ===
+      - name: Self-check metrics
+        run: |
+          node tools/faculty-grabber/dist/selfcheck.js
+
+      # === Build cleaner ===
+      - name: Build cleaner
+        working-directory: tools/faculty-cleaner
+        run: |
+          npm install --no-audit --no-fund
+          npm run build
+
+      # Generate cleaned HTML from captured HTMLs before pushing to Drive
+      - name: Run cleaner
+        env:
+          INPUT_DIR: ../../captures
+          OUTPUT_DIR: ../../cleaned
+        working-directory: tools/faculty-cleaner
+        run: |
+          node dist/runDir.js
+          echo "cleaned dir:" && ls -la ../../cleaned || true
+
+      - name: Write to Sheets & upload to Drive (K列のみ更新)
+        env:
+          INPUT_DIR: ../../cleaned
+          CAP_DIR: ../../captures
+          SHEET_ID: ${{ secrets.SHEET_ID }}
+          SHEET_NAME: ${{ env.SHEET_NAME }}
+          DRIVE_FOLDER_ID: ${{ env.DRIVE_FOLDER_ID }}
+          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+        working-directory: tools/faculty-cleaner
+        run: |
+          npm run run:pushdir
+
+      - name: Upload cleaned (artifact)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cleaned-html
+          path: cleaned/**
+          if-no-files-found: ignore

@@ -267,8 +267,19 @@ async function main() {
   const rows = (resp.data.values || []) as string[][];
   if (!rows.length) { console.error('Sheet empty'); process.exit(1); }
   const header = rows[0];
-  // Fixed columns per spec: A=大学名, B=研究科, C=url, J=有効, K=HTML
-  const univCol = 0, gradCol = 1, urlCol = 2, enabledCol = 9, htmlCol = 10;
+  // Columns: A=大学名, B=研究科, J=有効, K=HTML は固定。
+  // URL 列は研究科(C) もしくは 教授/研究室(H: 出典URL) など変動するためヘッダ名で検出する。
+  const univCol = 0, gradCol = 1, enabledCol = 9, htmlCol = 10;
+  const detectUrlCol = (): number => {
+    const candidates = ['出典url','url','研究科url'];
+    for (let i = 0; i < header.length; i++) {
+      const s = String(header[i] || '').trim().toLowerCase();
+      if (candidates.includes(s)) return i;
+    }
+    // フォールバック: 従来(研究科)の C 列
+    return 2;
+  };
+  const urlCol = detectUrlCol();
 
   await fs.ensureDir('captures');
   let okCnt = 0, skipCnt = 0, failCnt = 0;
@@ -322,12 +333,24 @@ async function main() {
         failCnt++; continue;
       }
 
-      // Save local (artifact)
+      // Save local (artifact) + meta
       const u = new URL(url); const slug = toSlug(u);
       const stamp = new Date().toISOString().replace(/[-:]/g,'').replace('T','_').slice(0,15);
       const fname = `${prefix}-${slug}-${stamp}.html`;
       const fpath = path.join('captures', fname);
       await fs.writeFile(fpath, html, 'utf8');
+      const metaPath = path.join('captures', `${prefix}-${slug}-${stamp}.meta.json`);
+      const meta = {
+        url,
+        university: univ || null,
+        graduate_school: grad || null,
+        site,
+        methodUsed: method,
+        saved_at_iso: new Date().toISOString(),
+        output: path.resolve(fpath),
+        metrics,
+      };
+      try { await fs.writeJson(metaPath, meta, { spaces: 2 }); } catch {}
 
       // Upload to Drive（OAuthを優先）
       let created;

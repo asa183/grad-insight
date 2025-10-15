@@ -39,10 +39,19 @@ async function main() {
   const resp = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range });
   const rows = (resp.data.values || []) as string[][];
   const header = rows[0] || [];
+  const detectUrlCol = (): number => {
+    const candidates = ['出典url','url','研究科url'];
+    for (let i = 0; i < header.length; i++) {
+      const s = String(header[i] || '').trim().toLowerCase();
+      if (candidates.includes(s)) return i;
+    }
+    return 2; // fallback: C列
+  };
+  const urlCol = detectUrlCol();
   const urlToRow = new Map<string, number>();
   for (let i = 1; i < rows.length; i++) {
     const r = rows[i] || [];
-    const url = (r[2] || '').toString().trim(); // C列=研究科URL
+    const url = (r[urlCol] || '').toString().trim();
     if (url) urlToRow.set(url, i);
   }
 
@@ -71,7 +80,8 @@ async function main() {
     const link = meta.data.webViewLink || `https://drive.google.com/file/d/${id}/view`;
 
     const r1 = rowIndex + 1;
-    updates.push({ range: `${SHEET_NAME}!K${r1}:O${r1}`, values: [[link, id, 'success', '', new Date().toISOString()]] });
+    // 教授版要件: K列(HTML) のみ更新（L〜O は触らない）
+    updates.push({ range: `${SHEET_NAME}!K${r1}`, values: [[link]] });
     uploaded++;
   }
 
