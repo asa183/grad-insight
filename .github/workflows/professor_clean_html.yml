@@ -1,7 +1,26 @@
 name: Professor Profiles Clean HTML
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      sheet_id:
+        description: "Override SHEET_ID (optional)"
+        required: false
+        type: string
+      sheet_name:
+        description: "Sheet tab name"
+        required: false
+        default: MERGED
+        type: string
+      drive_folder_id:
+        description: "Drive folder ID to upload"
+        required: false
+        default: 1Xp-oLxyYgqx6A5QS0bWYNkRkhf0hN_LG
+        type: string
+      method:
+        description: "Capture method override (http|playwright)"
+        required: false
+        type: string
 
 jobs:
   run:
@@ -11,10 +30,11 @@ jobs:
       OAUTH_CLIENT_ID: ${{ secrets.OAUTH_CLIENT_ID }}
       OAUTH_CLIENT_SECRET: ${{ secrets.OAUTH_CLIENT_SECRET }}
       OAUTH_REFRESH_TOKEN: ${{ secrets.OAUTH_REFRESH_TOKEN }}
-      SHEET_ID: ${{ secrets.SHEET_ID }}
-      SHEET_NAME: MERGED
+      SHEET_ID: ${{ inputs.sheet_id || secrets.SHEET_ID }}
+      SHEET_NAME: ${{ inputs.sheet_name || 'MERGED' }}
       # 保存先（教授・研究室用）
-      DRIVE_FOLDER_ID: 1Xp-oLxyYgqx6A5QS0bWYNkRkhf0hN_LG
+      DRIVE_FOLDER_ID: ${{ inputs.drive_folder_id || '1Xp-oLxyYgqx6A5QS0bWYNkRkhf0hN_LG' }}
+      METHOD: ${{ inputs.method }}
       CONCURRENCY: '3'
     steps:
       - uses: actions/checkout@v4
