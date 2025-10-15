@@ -40,7 +40,7 @@ async function ensureAnyoneReader(drive: any, fileId: string) {
 async function main() {
   const INPUT_DIR = process.env.INPUT_DIR || 'cleaned';
   const CAP_DIR = process.env.CAP_DIR || 'captures';
-  const files = (await fs.readdir(INPUT_DIR).catch(() => [] as string[])).filter(f => f.endsWith('.clean.html'));
+  const files = (await fs.readdir(INPUT_DIR).catch(() => [] as string[])).filter(f => /\.clean\.(html|txt)$/i.test(f));
   if (!files.length) { console.warn(`no clean html in ${INPUT_DIR} — nothing to push.`); return; }
 
   const auth = await getAuth();
@@ -90,10 +90,12 @@ async function main() {
 
     // upload to Drive
     const filePath = path.join(INPUT_DIR, f);
-    const name = f.replace(/\.clean\.html$/i, '') + '.html';
+    const isTxt = /\.clean\.txt$/i.test(f);
+    const name = f.replace(/\.clean\.(html|txt)$/i, '') + (isTxt ? '.txt' : '.html');
+    const mime = isTxt ? 'text/plain' : 'text/html';
     const created = await drive.files.create({
-      requestBody: { name, parents: [DRIVE_FOLDER_ID], mimeType: 'text/html' },
-      media: { mimeType: 'text/html', body: await fs.readFile(filePath, 'utf8') },
+      requestBody: { name, parents: [DRIVE_FOLDER_ID], mimeType: mime },
+      media: { mimeType: mime, body: await fs.readFile(filePath, 'utf8') },
       fields: 'id, webViewLink', supportsAllDrives: true,
     } as any);
     const id = created.data.id as string;

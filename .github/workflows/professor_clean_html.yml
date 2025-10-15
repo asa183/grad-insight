@@ -22,6 +22,10 @@ on:
         description: "Capture method override (http|playwright)"
         required: false
         type: string
+      force_pw_substr:
+        description: "Comma-separated substrings of URLs to force Playwright"
+        required: false
+        type: string
 
 jobs:
   run:
@@ -89,7 +93,7 @@ jobs:
             fail=0
           fi
           echo "fail=$fail"
-          if [ "$fail" -gt 0 ]; then echo "needs_pw=1" >> $GITHUB_OUTPUT; else echo "needs_pw=0" >> $GITHUB_OUTPUT; fi
+          if [ "$fail" -gt 0 ] || [ -n "${{ inputs.force_pw_substr }}" ]; then echo "needs_pw=1" >> $GITHUB_OUTPUT; else echo "needs_pw=0" >> $GITHUB_OUTPUT; fi
 
       # === Install Playwright only if needed ===
       - name: Install Playwright browsers
@@ -111,6 +115,7 @@ jobs:
           OAUTH_REFRESH_TOKEN: ${{ env.OAUTH_REFRESH_TOKEN || secrets.OAUTH_REFRESH_TOKEN }}
           METHOD: http
           ALLOW_PLAYWRIGHT: '1'
+          FORCE_PW_SUBSTR: ${{ inputs.force_pw_substr }}
         run: |
           node tools/faculty-grabber/dist/runFromSheet.js
 
@@ -134,11 +139,12 @@ jobs:
           npm install --no-audit --no-fund
           npm run build
 
-      # Generate cleaned HTML from captured HTMLs before pushing to Drive
-      - name: Run cleaner
+      # Generate cleaned TEXT from captured HTMLs before pushing to Drive
+      - name: Run cleaner (text mode)
         env:
           INPUT_DIR: ../../captures
           OUTPUT_DIR: ../../cleaned
+          CLEAN_MODE: text
         working-directory: tools/faculty-cleaner
         run: |
           node dist/runDir.js

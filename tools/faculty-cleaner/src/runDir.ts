@@ -1,6 +1,6 @@
 import fs from 'fs-extra';
 import path from 'path';
-import { cleanFacultyHtml } from './index.js';
+import { cleanFacultyHtml, cleanFacultyText } from './index.js';
 
 async function main() {
   const inputDir = process.env.INPUT_DIR || 'captures';
@@ -11,7 +11,8 @@ async function main() {
     console.warn(`No .html files in ${inputDir} — skip cleaning.`);
     return;
   }
-  console.log(`Cleaner processing ${files.length} files from ${inputDir} -> ${outDir}`);
+  const mode = (process.env.CLEAN_MODE || 'html').toLowerCase();
+  console.log(`Cleaner processing ${files.length} files from ${inputDir} -> ${outDir} (mode=${mode})`);
   let ok = 0; let fail = 0;
   for (const f of files) {
     try {
@@ -26,8 +27,8 @@ async function main() {
         } catch {}
       }
       const raw = await fs.readFile(htmlPath, 'utf8');
-      const cleaned = cleanFacultyHtml(raw, sourceUrl);
-      const outPath = path.join(outDir, `${base}.clean.html`);
+      const cleaned = (mode === 'text') ? cleanFacultyText(raw, sourceUrl) : cleanFacultyHtml(raw, sourceUrl);
+      const outPath = path.join(outDir, `${base}.clean.${mode === 'text' ? 'txt' : 'html'}`);
       await fs.writeFile(outPath, cleaned, 'utf8');
       console.log(`CLEAN OK ${f} -> ${path.relative('.', outPath)}`);
       ok++;
