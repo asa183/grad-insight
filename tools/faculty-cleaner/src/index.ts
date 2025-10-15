@@ -149,6 +149,16 @@ function absolutizeLinksAndImages($: CheerioAPI, $scope: Cheerio<any>, baseUrl: 
   });
 }
 function pruneEventAndStyle($: CheerioAPI, $scope: Cheerio<any>) { cleanAttributes($, $scope); }
+function simplifyFormControls($: CheerioAPI, $scope: Cheerio<any>) {
+  // Replace <option value="code">Text</option> with its visible text only
+  $scope.find('option').each((_, el) => {
+    const txt = ($(el).text() || '').trim();
+    if (txt) $(el).replaceWith(txt);
+    else $(el).remove();
+  });
+  // Unwrap selects/datalists so only textual content remains
+  $scope.find('select, datalist').each((_, el) => { unwrapKeepChildren($, el); });
+}
 function finalizeFormatting($: CheerioAPI, $scope: Cheerio<any>): string {
   compressBrRuns($, $scope); normalizeTextWhitespace($, $scope); removeCommentsDeep($, $scope); let html = $.html($scope[0]); html = ensureNewlinesBetweenBlocks(html); return html;
 }
@@ -167,7 +177,7 @@ function removeEmptyBlocks($: CheerioAPI, $scope: Cheerio<any>) {
 export function cleanFacultyHtml(html: string, sourceUrl: string): string {
   const $ = load(html);
   const $scope = selectScope($);
-  removeOrUnwrapNoise($, $scope); removeForcedTags($, $scope); absolutizeLinksAndImages($, $scope, sourceUrl); pruneEventAndStyle($, $scope); removeEmptyBlocks($, $scope);
+  removeOrUnwrapNoise($, $scope); removeForcedTags($, $scope); absolutizeLinksAndImages($, $scope, sourceUrl); simplifyFormControls($, $scope); pruneEventAndStyle($, $scope); removeEmptyBlocks($, $scope);
   let out = finalizeFormatting($, $scope);
   if (out.length > 30000) { const $_ = load(out); const $scope2 = selectScope($_); clipToLimit($_, $scope2, 30000); out = ensureNewlinesBetweenBlocks($_.html($scope2[0])); }
   return out;

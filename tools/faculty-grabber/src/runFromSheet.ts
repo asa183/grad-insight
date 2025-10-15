@@ -307,35 +307,41 @@ async function main() {
     const grad = (r[gradCol] || '').toString();
     const person = (r[nameCol] || '').toString();
     const prefix = sanitizeName(`${person}_${univ}`) || 'output';
-    let method = chooseMethod(site, url);
-    console.log(`[${rowNo}] chosen=${method} url=${url}`);
+    let method: Method = 'http';
+    if (METHOD_OVERRIDE === 'playwright') method = 'playwright';
+    console.log(`[${rowNo}] chosen-initial=${method} url=${url}`);
 
     try {
       let html = ''; let metrics: any = {};
       const tryHttp = async () => { ({ html, metrics } = await captureHttp(url)); };
       const tryPw = async () => { ({ html, metrics } = await capturePlaywright(url)); };
-      // Playwright を必ず優先
-      try {
+      // HTTP優先（失敗・不十分ならPlaywrightへフォールバック）
+      if (METHOD_OVERRIDE === 'playwright') {
         console.log(`[${rowNo}] try=playwright url=${url}`);
         await tryPw();
-      } catch (e) {
-        console.warn(`[${rowNo}] playwright failed: ${(e as any)?.message || e}; fallback to HTTP`);
-        console.log(`[${rowNo}] try=http url=${url}`);
-        await tryHttp();
-        method = 'http';
-      }
-      // それでも自己検査に不合格なら、もう一方も試す
-      if (!selfCheck(site, method, metrics)) {
-        console.warn(`[${rowNo}] self-check failed after ${method}; retry other method`);
-        if (method === 'http') { 
-          console.log(`[${rowNo}] retry=playwright url=${url}`);
-          await tryPw(); method = 'playwright'; 
+        method = 'playwright';
+      } else {
+        try {
+          console.log(`[${rowNo}] try=http url=${url}`);
+          await tryHttp();
+          method = 'http';
+        } catch (e) {
+          console.warn(`[${rowNo}] http failed: ${(e as any)?.message || e}; fallback to Playwright`);
+          console.log(`[${rowNo}] try=playwright url=${url}`);
+          await tryPw();
+          method = 'playwright';
         }
-        else { 
-          try { 
-            console.log(`[${rowNo}] retry=http url=${url}`);
-            await tryHttp(); method = 'http'; 
-          } catch {}
+        if (!selfCheck(site, method, metrics)) {
+          console.warn(`[${rowNo}] self-check failed after ${method}; retry other method`);
+          if (method === 'http') {
+            console.log(`[${rowNo}] retry=playwright url=${url}`);
+            await tryPw(); method = 'playwright';
+          } else {
+            try {
+              console.log(`[${rowNo}] retry=http url=${url}`);
+              await tryHttp(); method = 'http';
+            } catch {}
+          }
         }
       }
       console.log(`[${rowNo}] metrics staff=${metrics?.staff ?? '-'} rlab=${metrics?.rlab ?? '-'} fish=${metrics?.fish ?? '-'} names=${metrics?.names ?? '-'}`);
