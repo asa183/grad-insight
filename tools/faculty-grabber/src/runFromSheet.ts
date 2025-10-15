@@ -222,8 +222,20 @@ function sanitizeName(s: string): string {
     .slice(0, 80);
 }
 
+function parseForcePw(): { urls: Set<string>, substr: string[] } {
+  const urls = new Set<string>();
+  const u = (process.env.FORCE_PW_URLS || '').trim();
+  if (u) {
+    for (const line of u.split(/\r?\n|,/)) { const s = line.trim(); if (s) urls.add(s); }
+  }
+  const substr = (process.env.FORCE_PW_SUBSTR || '').split(',').map(s => s.trim()).filter(Boolean);
+  return { urls, substr };
+}
+
 async function main() {
   const ALLOW_PLAYWRIGHT = (process.env.ALLOW_PLAYWRIGHT ?? '1') !== '0';
+  const force = parseForcePw();
+  const ONLY_FAILED = (process.env.ONLY_FAILED ?? '0') === '1';
   if (!SHEET_ID || !DRIVE_FOLDER_ID) {
     console.error('SHEET_ID and DRIVE_FOLDER_ID are required');
     process.exit(2);
@@ -299,6 +311,15 @@ async function main() {
   const urlCol = detectUrlCol();
 
   await fs.ensureDir('captures');
+  let failedSet: Set<string> | null = null;
+  if (ONLY_FAILED) {
+    try {
+      const sum = await fs.readJson(path.join('captures','_summary.json')) as any;
+      const arr = Array.isArray(sum?.failedUrls) ? sum.failedUrls as string[] : [];
+      failedSet = new Set(arr.filter(Boolean));
+      console.log(`ONLY_FAILED=1 active, targeting ${failedSet.size} URLs`);
+    } catch { console.warn('ONLY_FAILED=1 but captures/_summary.json not found or invalid'); failedSet = new Set(); }
+  }
   let okCnt = 0, skipCnt = 0, failCnt = 0;
   const failedUrls: string[] = [];
 
@@ -307,6 +328,7 @@ async function main() {
     const url = (r[urlCol] || '').toString().trim();
     const enabled = truthy(r[enabledCol]);
     if (!url) continue;
+    if (ONLY_FAILED && failedSet && !failedSet.has(url)) { continue; }
     const rowNo = i+1;
     if (!enabled) { console.log(`SKIP row=${rowNo} url=${url} (有効=false)`); skipCnt++; continue; }
     const site = detectSite(url);
@@ -316,6 +338,8 @@ async function main() {
     const prefix = sanitizeName(`${person}_${univ}`) || 'output';
     let method: Method = 'http';
     if (METHOD_OVERRIDE === 'playwright') method = 'playwright';
+    const isForced = force.urls.has(url) || force.substr.some(s => url.includes(s));
+    if (isForced && ALLOW_PLAYWRIGHT) method = 'playwright';
     console.log(`[${rowNo}] chosen-initial=${method} url=${url}`);
 
     try {
@@ -323,7 +347,7 @@ async function main() {
       const tryHttp = async () => { ({ html, metrics } = await captureHttp(url)); };
       const tryPw = async () => { ({ html, metrics } = await capturePlaywright(url)); };
       // HTTP優先（失敗・不十分ならPlaywrightへフォールバック）
-      if (METHOD_OVERRIDE === 'playwright') {
+      if (METHOD_OVERRIDE === 'playwright' || (isForced && ALLOW_PLAYWRIGHT)) {
         console.log(`[${rowNo}] try=playwright url=${url}`);
         await tryPw();
         method = 'playwright';
