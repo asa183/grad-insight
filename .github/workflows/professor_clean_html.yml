@@ -154,6 +154,7 @@ jobs:
         env:
           INPUT_DIR: ../../cleaned
           CAP_DIR: ../../captures
+          UPLOAD_SOURCE: captures
           SHEET_ID: ${{ env.SHEET_ID }}
           SHEET_NAME: ${{ env.SHEET_NAME }}
           DRIVE_FOLDER_ID: ${{ env.DRIVE_FOLDER_ID }}
