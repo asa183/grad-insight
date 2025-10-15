@@ -30,7 +30,8 @@ jobs:
       OAUTH_CLIENT_ID: ${{ secrets.OAUTH_CLIENT_ID }}
       OAUTH_CLIENT_SECRET: ${{ secrets.OAUTH_CLIENT_SECRET }}
       OAUTH_REFRESH_TOKEN: ${{ secrets.OAUTH_REFRESH_TOKEN }}
-      SHEET_ID: ${{ inputs.sheet_id || secrets.SHEET_ID }}
+      # Prefer SHEET_ID2 for MERGED; fall back to provided input, then SHEET_ID
+      SHEET_ID: ${{ inputs.sheet_id || secrets.SHEET_ID2 || secrets.SHEET_ID }}
       SHEET_NAME: ${{ inputs.sheet_name || 'MERGED' }}
       # 保存先（教授・研究室用）
       DRIVE_FOLDER_ID: ${{ inputs.drive_folder_id || '1Xp-oLxyYgqx6A5QS0bWYNkRkhf0hN_LG' }}
