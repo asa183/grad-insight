@@ -1,15 +1,20 @@
 import { load } from 'cheerio';
 const NOISE_SELECTOR_LIST = [
-    'header', 'nav', 'footer', 'aside', 'form[role="search"]',
+    'header', 'nav', 'footer', 'aside', 'form', 'form[role="search"]',
     '.global-nav', '.site-header', '.site-footer', '.breadcrumb', '.breadcrumbs', '.pager', '.pagination',
     '.sns', '.share', '.social', '.skip-link', '.cookie', '.consent', '.gdpr', '.banner', '.ads', '.advertisement',
     '.newsletter', '.modal', '.popup', '.drawer', '.offcanvas',
     '.side', '.sidenav', '[class*="side-nav"]', '[id*="side-nav"]',
+    // common search wrappers
+    '.search', '.detailSearch', '.detail-search', '.global-search', '.site-search', '.quick-search',
+    '[id*="search"]', '[class*="search"]',
 ];
 const NOISE_CLASS_SUBSTR = [
     'global-nav', 'site-header', 'site-footer', 'breadcrumb', 'breadcrumbs', 'pager', 'pagination', 'sns', 'share', 'social',
     'skip-link', 'cookie', 'consent', 'gdpr', 'banner', 'ads', 'advert', 'newsletter', 'modal', 'popup', 'drawer', 'offcanvas',
-    'side', 'sidenav', 'side-nav'
+    'side', 'sidenav', 'side-nav',
+    // search/control related
+    'search', 'detailsearch', 'quick-search', 'global-search', 'selectbox', 'select-box', 'filter', 'filters', 'facet', 'refine', 'toolbar', 'controls', 'autocomplete', 'suggest'
 ];
 const FORCE_REMOVE_TAGS = new Set(['script', 'style', 'noscript', 'template', 'iframe']);
 const ROLE_WORDS_JA = ['教授', '准教授', '助教', '講師', '特任教授', '客員教授', '名誉教授', '非常勤講師', '招聘教授', '招へい教員'];
@@ -190,6 +195,22 @@ function removeOrUnwrapNoise($, $scope) {
             $el.remove();
         }
     });
+    // id-based hints as well
+    $scope.find('[id]').each((_, el) => {
+        const $el = $(el);
+        const idv = ($el.attr('id') || '').toLowerCase();
+        if (!idv)
+            return;
+        if (!NOISE_CLASS_SUBSTR.some(key => idv.includes(key)))
+            return;
+        const keep = hasDescendantAnchorWithProfile($, $el) || hasNameOrRoleClues($, $el);
+        if (keep) {
+            unwrapKeepChildren($, el);
+        }
+        else {
+            $el.remove();
+        }
+    });
 }
 function absolutizeLinksAndImages($, $scope, baseUrl) {
     $scope.find('a[href]').each((_, a) => { const href = $(a).attr('href'); if (!href)
@@ -210,6 +231,35 @@ function absolutizeLinksAndImages($, $scope, baseUrl) {
     });
 }
 function pruneEventAndStyle($, $scope) { cleanAttributes($, $scope); }
+function simplifyFormControls($, $scope) {
+    // Remove very large select/datalist blocks entirely (option spam)
+    $scope.find('select, datalist').each((_, el) => {
+        const $el = $(el);
+        const options = $el.find('option');
+        const optCount = options.length;
+        const totalTextLen = options.toArray().reduce((acc, o) => acc + (($(o).text() || '').trim().length), 0);
+        if (optCount >= 20 || totalTextLen >= 200) {
+            $el.remove();
+            return;
+        }
+        // For smaller ones, keep only visible text
+        options.each((__, o) => {
+            const txt = ($(o).text() || '').trim();
+            if (txt)
+                $(o).replaceWith(txt);
+            else
+                $(o).remove();
+        });
+        unwrapKeepChildren($, el);
+    });
+    // Generic inputs/buttons are removed as noise unless containing meaningful text (rare)
+    $scope.find('input, textarea, button, label').each((_, el) => {
+        const $el = $(el);
+        const txt = ($el.text() || $el.attr('value') || '').trim();
+        if (txt.length === 0)
+            $el.remove();
+    });
+}
 function finalizeFormatting($, $scope) {
     compressBrRuns($, $scope);
     normalizeTextWhitespace($, $scope);
@@ -236,6 +286,7 @@ export function cleanFacultyHtml(html, sourceUrl) {
     removeOrUnwrapNoise($, $scope);
     removeForcedTags($, $scope);
     absolutizeLinksAndImages($, $scope, sourceUrl);
+    simplifyFormControls($, $scope);
     pruneEventAndStyle($, $scope);
     removeEmptyBlocks($, $scope);
     let out = finalizeFormatting($, $scope);
@@ -246,4 +297,40 @@ export function cleanFacultyHtml(html, sourceUrl) {
         out = ensureNewlinesBetweenBlocks($_.html($scope2[0]));
     }
     return out;
+}
+function decodeEntities(text) {
+    return text
+        .replace(/&nbsp;/g, ' ')
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/&#(\d+);/g, (m, n) => String.fromCharCode(parseInt(n, 10)))
+        .replace(/&#x([0-9a-fA-F]+);/g, (m, n) => String.fromCharCode(parseInt(n, 16)));
+}
+export function cleanFacultyText(html, sourceUrl) {
+    const $ = load(html);
+    const $scope = selectScope($);
+    // Same noise pruning as HTML mode
+    removeOrUnwrapNoise($, $scope);
+    removeForcedTags($, $scope);
+    simplifyFormControls($, $scope);
+    // Convert to intermediate HTML string
+    let h = $.html($scope[0]) || '';
+    // line breaks for br and common block closings
+    h = h.replace(/<br\s*\/?/gi, '\n');
+    const blockNames = Array.from(BLOCK_TAGS).join('|');
+    const closeOpen = new RegExp(`</(?:${blockNames})>\\s*`, 'gi');
+    h = h.replace(closeOpen, (m) => '\n');
+    // strip remaining tags preserving inner text
+    h = h.replace(/<[^>]+>/g, ' ');
+    h = decodeEntities(h);
+    // normalize whitespace
+    h = h.replace(/\r\n?/g, '\n');
+    h = h.replace(/[\t\v\f\u00A0]+/g, ' ');
+    h = h.replace(/ *\n+ */g, '\n');
+    h = h.replace(/\n{3,}/g, '\n\n');
+    h = h.replace(/ {2,}/g, ' ');
+    return h.trim();
 }

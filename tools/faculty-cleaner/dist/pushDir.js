@@ -5,11 +5,23 @@ const SHEET_ID = process.env.SHEET_ID || '';
 const SHEET_NAME = process.env.SHEET_NAME || 'Examples';
 const DRIVE_FOLDER_ID = process.env.DRIVE_FOLDER_ID || '';
 const GOOGLE_CREDENTIALS_JSON = process.env.GOOGLE_CREDENTIALS_JSON;
+const OAUTH_CLIENT_ID = process.env.OAUTH_CLIENT_ID || '';
+const OAUTH_CLIENT_SECRET = process.env.OAUTH_CLIENT_SECRET || '';
+const OAUTH_REFRESH_TOKEN = process.env.OAUTH_REFRESH_TOKEN || '';
 if (!SHEET_ID || !DRIVE_FOLDER_ID) {
     console.error('SHEET_ID and DRIVE_FOLDER_ID are required');
     process.exit(2);
 }
 async function getAuth() {
+    if (OAUTH_CLIENT_ID && OAUTH_CLIENT_SECRET && OAUTH_REFRESH_TOKEN) {
+        const oauth2 = new google.auth.OAuth2({
+            clientId: OAUTH_CLIENT_ID,
+            clientSecret: OAUTH_CLIENT_SECRET,
+            redirectUri: 'urn:ietf:wg:oauth:2.0:oob',
+        });
+        oauth2.setCredentials({ refresh_token: OAUTH_REFRESH_TOKEN });
+        return oauth2;
+    }
     if (GOOGLE_CREDENTIALS_JSON) {
         const creds = JSON.parse(GOOGLE_CREDENTIALS_JSON);
         const auth = new google.auth.GoogleAuth({ credentials: creds, scopes: ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive'] });
@@ -26,9 +38,17 @@ async function ensureAnyoneReader(drive, fileId) {
 async function main() {
     const INPUT_DIR = process.env.INPUT_DIR || 'cleaned';
     const CAP_DIR = process.env.CAP_DIR || 'captures';
-    const files = (await fs.readdir(INPUT_DIR).catch(() => [])).filter(f => f.endsWith('.clean.html'));
+    const UPLOAD_SOURCE = (process.env.UPLOAD_SOURCE || 'auto').toLowerCase(); // 'auto' | 'cleaned' | 'captures'
+    // Strict policy: upload only cleaned text outputs
+    let source = 'cleaned';
+    let files = (await fs.readdir(INPUT_DIR).catch(() => [])).filter(f => /\.clean\.txt$/i.test(f));
+    if (!files.length && UPLOAD_SOURCE === 'auto') {
+        // In auto mode, allow fallback if cleaned text is missing (but still prefer .clean.txt only if present later)
+        source = 'captures';
+        files = []; // Do not upload raw HTML under strict text-only policy
+    }
     if (!files.length) {
-        console.warn(`no clean html in ${INPUT_DIR} — nothing to push.`);
+        console.warn(`no cleaned text files to push. INPUT_DIR=${INPUT_DIR}`);
         return;
     }
     const auth = await getAuth();
@@ -38,39 +58,79 @@ async function main() {
     const resp = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range });
     const rows = (resp.data.values || []);
     const header = rows[0] || [];
+    const detectUrlCol = () => {
+        const ucol = process.env.URL_COL ? Number(process.env.URL_COL) : NaN;
+        if (!Number.isNaN(ucol) && ucol >= 0)
+            return ucol;
+        const candidates = ['出典url', 'url', '研究科url'];
+        for (let i = 0; i < header.length; i++) {
+            const s = String(header[i] || '').trim().toLowerCase();
+            if (candidates.includes(s))
+                return i;
+        }
+        return 2; // fallback: C列
+    };
+    const urlCol = detectUrlCol();
     const urlToRow = new Map();
     for (let i = 1; i < rows.length; i++) {
         const r = rows[i] || [];
-        const url = (r[2] || '').toString().trim(); // C列=研究科URL
+        const url = (r[urlCol] || '').toString().trim();
         if (url)
             urlToRow.set(url, i);
     }
     const updates = [];
     let uploaded = 0;
     for (const f of files) {
-        const base = f.replace(/\.clean\.html$/, '');
-        const metaPath = path.join(CAP_DIR, `${base}.meta.json`);
+        const base = f.replace(/\.clean\.txt$/i, '');
+        // Resolve meta path with robust CAP_DIR fallbacks
+        const metaRel = `${base}.meta.json`;
+        const candDirs = [
+            CAP_DIR,
+            path.resolve(process.cwd(), 'captures'),
+            path.resolve(process.cwd(), '../captures'),
+            path.resolve(process.cwd(), '../../captures'),
+        ].filter(Boolean);
+        let metaPath = '';
+        for (const d of candDirs) {
+            const p = path.join(d, metaRel);
+            try {
+                if (await fs.pathExists(p)) {
+                    metaPath = p;
+                    break;
+                }
+            }
+            catch { }
+        }
         let url = '';
-        try {
-            const meta = await fs.readJson(metaPath);
-            url = String(meta.url || '');
+        let rowIndex = undefined;
+        if (metaPath) {
+            try {
+                const meta = await fs.readJson(metaPath);
+                url = String(meta.url || '');
+                const ri = meta.row_index;
+                if (typeof ri === 'number' && isFinite(ri))
+                    rowIndex = ri - 1; // 1-based in meta
+            }
+            catch { }
         }
-        catch { }
-        if (!url) {
-            console.warn(`skip ${f}: url not found in meta`);
-            continue;
+        if (rowIndex == null) {
+            if (!url) {
+                console.warn(`skip ${f}: meta not found or url empty (tried: ${candDirs.join(' | ')})`);
+                continue;
+            }
+            rowIndex = urlToRow.get(url);
         }
-        const rowIndex = urlToRow.get(url);
         if (rowIndex == null) {
             console.warn(`skip ${f}: url not found in sheet`);
             continue;
         }
         // upload to Drive
         const filePath = path.join(INPUT_DIR, f);
-        const name = f.replace(/\.clean\.html$/i, '') + '.html';
+        const name = f.replace(/\.clean\.txt$/i, '') + '.txt';
+        const mime = 'text/plain';
         const created = await drive.files.create({
-            requestBody: { name, parents: [DRIVE_FOLDER_ID], mimeType: 'text/html' },
-            media: { mimeType: 'text/html', body: await fs.readFile(filePath, 'utf8') },
+            requestBody: { name, parents: [DRIVE_FOLDER_ID], mimeType: mime },
+            media: { mimeType: mime, body: await fs.readFile(filePath, 'utf8') },
             fields: 'id, webViewLink', supportsAllDrives: true,
         });
         const id = created.data.id;
@@ -78,11 +138,13 @@ async function main() {
         const meta = await drive.files.get({ fileId: id, fields: 'id, webViewLink', supportsAllDrives: true });
         const link = meta.data.webViewLink || `https://drive.google.com/file/d/${id}/view`;
         const r1 = rowIndex + 1;
-        updates.push({ range: `${SHEET_NAME}!K${r1}:O${r1}`, values: [[link, id, 'success', '', new Date().toISOString()]] });
+        // 教授版要件: K列(HTML) 更新 + J列をFALSEへ
+        updates.push({ range: `${SHEET_NAME}!K${r1}`, values: [[link]] });
+        updates.push({ range: `${SHEET_NAME}!J${r1}`, values: [[false]] });
         uploaded++;
     }
     if (updates.length) {
-        await sheets.spreadsheets.values.batchUpdate({ spreadsheetId: SHEET_ID, requestBody: { valueInputOption: 'RAW', data: updates } });
+        await sheets.spreadsheets.values.batchUpdate({ spreadsheetId: SHEET_ID, requestBody: { valueInputOption: 'USER_ENTERED', data: updates } });
     }
     console.log(`Push summary: uploaded=${uploaded}`);
     // アップロード 0 件でも非エラー終了（セル更新なし）

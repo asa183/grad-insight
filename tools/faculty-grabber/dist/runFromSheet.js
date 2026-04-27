@@ -58,7 +58,21 @@ function absolutize(u, base) {
         return u;
     }
 }
+function normalizeUrl(u) {
+    try {
+        const x = new URL(u);
+        if (x.hostname.endsWith('researchers.general.hokudai.ac.jp') && x.protocol === 'http:') {
+            x.protocol = 'https:';
+            return x.toString();
+        }
+        return u;
+    }
+    catch {
+        return u;
+    }
+}
 async function captureHttp(url) {
+    url = normalizeUrl(url);
     const ctrl = new AbortController();
     const to = setTimeout(() => ctrl.abort(), 20000);
     const headers = {
@@ -88,15 +102,19 @@ async function captureHttp(url) {
     const rlab = anchors.filter((h) => h.includes('/r/lab/')).length;
     const fish = anchors.filter((h) => h.includes('/faculty-member/')).length;
     const names = $$('.name, .m-name, dt.name').toArray().filter((el) => ($$(el).text() || '').trim().length >= 2).length;
-    return { html: outer, metrics: { staff, rlab, fish, names } };
+    const textLen = $$.root().text().replace(/\s+/g, ' ').trim().length;
+    return { html: outer, metrics: { staff, rlab, fish, names, textLen } };
 }
 async function capturePlaywright(url) {
+    url = normalizeUrl(url);
     const browser = await chromium.launch({ headless: true });
     const ctx = await browser.newContext({
         userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
         locale: 'ja-JP', timezoneId: 'Asia/Tokyo', viewport: { width: 1366, height: 900 }, javaScriptEnabled: true,
+        ignoreHTTPSErrors: true,
     });
     const page = await ctx.newPage();
+    page.setDefaultNavigationTimeout(120000);
     await page.addInitScript(() => {
         Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
         // @ts-ignore
@@ -115,7 +133,7 @@ async function capturePlaywright(url) {
     });
     let html = '';
     try {
-        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 90000 });
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 120000 });
         await page.waitForFunction(() => !!document.body, { timeout: 30000 });
         // 同意/クッキーバナー対応
         try {
@@ -200,9 +218,14 @@ async function capturePlaywright(url) {
     const rlab = anchors.filter((h) => h.includes('/r/lab/')).length;
     const fish = anchors.filter((h) => h.includes('/faculty-member/')).length;
     const names = $('.name, .m-name, dt.name').toArray().filter((el) => ($(el).text() || '').trim().length >= 2).length;
-    return { html, metrics: { staff, rlab, fish, names } };
+    const textLen = $.root().text().replace(/\s+/g, ' ').trim().length;
+    return { html, metrics: { staff, rlab, fish, names, textLen } };
 }
 function selfCheck(site, method, metrics) {
+    // Require minimum visible text to avoid tag-only outputs
+    const textOk = (metrics?.textLen ?? 0) > 50;
+    if (!textOk)
+        return false;
     if (site === 'edu' || site === 'let') {
         return (metrics.staff >= 1) || (metrics.names >= 1);
     }
@@ -245,7 +268,23 @@ function sanitizeName(s) {
         .trim()
         .slice(0, 80);
 }
+function parseForcePw() {
+    const urls = new Set();
+    const u = (process.env.FORCE_PW_URLS || '').trim();
+    if (u) {
+        for (const line of u.split(/\r?\n|,/)) {
+            const s = line.trim();
+            if (s)
+                urls.add(s);
+        }
+    }
+    const substr = (process.env.FORCE_PW_SUBSTR || '').split(',').map(s => s.trim()).filter(Boolean);
+    return { urls, substr };
+}
 async function main() {
+    const ALLOW_PLAYWRIGHT = (process.env.ALLOW_PLAYWRIGHT ?? '1') !== '0';
+    const force = parseForcePw();
+    const ONLY_FAILED = (process.env.ONLY_FAILED ?? '0') === '1';
     if (!SHEET_ID || !DRIVE_FOLDER_ID) {
         console.error('SHEET_ID and DRIVE_FOLDER_ID are required');
         process.exit(2);
@@ -300,17 +339,58 @@ async function main() {
         process.exit(1);
     }
     const header = rows[0];
-    // Fixed columns per spec: A=大学名, B=研究科, C=url, J=有効, K=HTML
-    const univCol = 0, gradCol = 1, urlCol = 2, enabledCol = 9, htmlCol = 10;
+    // Columns: A=大学名, B=研究科, J=有効, K=HTML は固定。
+    // URL 列はデフォルト検出だが、`URL_COL` が指定されていればその列を使用（0-based）。
+    const univCol = 0, gradCol = 1, enabledCol = 9, htmlCol = 10;
+    const nameCol = (() => {
+        const candidates = ['氏名', '教員名', '名前', 'name'];
+        for (let i = 0; i < header.length; i++) {
+            const s = String(header[i] || '').trim().toLowerCase();
+            if (candidates.includes(s))
+                return i;
+        }
+        return 4; // fallback: E列
+    })();
+    const detectUrlCol = () => {
+        // env override
+        const ucol = process.env.URL_COL ? Number(process.env.URL_COL) : NaN;
+        if (!Number.isNaN(ucol) && ucol >= 0)
+            return ucol;
+        const candidates = ['出典url', 'url', '研究科url'];
+        for (let i = 0; i < header.length; i++) {
+            const s = String(header[i] || '').trim().toLowerCase();
+            if (candidates.includes(s))
+                return i;
+        }
+        // フォールバック: 従来(研究科)の C 列
+        return 2;
+    };
+    const urlCol = detectUrlCol();
     await fs.ensureDir('captures');
+    let failedSet = null;
+    if (ONLY_FAILED) {
+        try {
+            const sum = await fs.readJson(path.join('captures', '_summary.json'));
+            const arr = Array.isArray(sum?.failedUrls) ? sum.failedUrls : [];
+            failedSet = new Set(arr.filter(Boolean));
+            console.log(`ONLY_FAILED=1 active, targeting ${failedSet.size} URLs`);
+        }
+        catch {
+            console.warn('ONLY_FAILED=1 but captures/_summary.json not found or invalid');
+            failedSet = new Set();
+        }
+    }
     let okCnt = 0, skipCnt = 0, failCnt = 0;
-    const updates = [];
+    const failedUrls = [];
     for (let i = 1; i < rows.length; i++) {
         const r = rows[i] || [];
         const url = (r[urlCol] || '').toString().trim();
         const enabled = truthy(r[enabledCol]);
         if (!url)
             continue;
+        if (ONLY_FAILED && failedSet && !failedSet.has(url)) {
+            continue;
+        }
         const rowNo = i + 1;
         if (!enabled) {
             console.log(`SKIP row=${rowNo} url=${url} (有効=false)`);
@@ -320,86 +400,107 @@ async function main() {
         const site = detectSite(url);
         const univ = (r[univCol] || '').toString();
         const grad = (r[gradCol] || '').toString();
-        const prefix = sanitizeName(`${univ}${grad}`) || 'output';
-        let method = chooseMethod(site, url);
-        console.log(`[${rowNo}] chosen=${method} url=${url}`);
+        const person = (r[nameCol] || '').toString();
+        const prefix = sanitizeName(`${person}_${univ}`) || 'output';
+        let method = 'http';
+        if (METHOD_OVERRIDE === 'playwright')
+            method = 'playwright';
+        const isForced = force.urls.has(url) || force.substr.some(s => url.includes(s));
+        if (isForced && ALLOW_PLAYWRIGHT)
+            method = 'playwright';
+        console.log(`[${rowNo}] chosen-initial=${method} url=${url}`);
         try {
             let html = '';
             let metrics = {};
             const tryHttp = async () => { ({ html, metrics } = await captureHttp(url)); };
             const tryPw = async () => { ({ html, metrics } = await capturePlaywright(url)); };
-            // Playwright を必ず優先
-            try {
+            // HTTP優先（失敗・不十分ならPlaywrightへフォールバック）
+            if (METHOD_OVERRIDE === 'playwright' || (isForced && ALLOW_PLAYWRIGHT)) {
                 console.log(`[${rowNo}] try=playwright url=${url}`);
-                await tryPw();
-            }
-            catch (e) {
-                console.warn(`[${rowNo}] playwright failed: ${e?.message || e}; fallback to HTTP`);
-                console.log(`[${rowNo}] try=http url=${url}`);
-                await tryHttp();
-                method = 'http';
-            }
-            // それでも自己検査に不合格なら、もう一方も試す
-            if (!selfCheck(site, method, metrics)) {
-                console.warn(`[${rowNo}] self-check failed after ${method}; retry other method`);
-                if (method === 'http') {
-                    console.log(`[${rowNo}] retry=playwright url=${url}`);
+                try {
                     await tryPw();
                     method = 'playwright';
                 }
-                else {
-                    try {
-                        console.log(`[${rowNo}] retry=http url=${url}`);
-                        await tryHttp();
-                        method = 'http';
+                catch (e) {
+                    console.warn(`[${rowNo}] playwright goto failed: ${e?.message || e}; try HTTP as fallback`);
+                    await tryHttp();
+                    method = 'http';
+                }
+            }
+            else {
+                try {
+                    console.log(`[${rowNo}] try=http url=${url}`);
+                    await tryHttp();
+                    method = 'http';
+                }
+                catch (e) {
+                    console.warn(`[${rowNo}] http failed: ${e?.message || e}; fallback to Playwright`);
+                    console.log(`[${rowNo}] try=playwright url=${url}`);
+                    await tryPw();
+                    method = 'playwright';
+                }
+                if (!selfCheck(site, method, metrics)) {
+                    console.warn(`[${rowNo}] self-check failed after ${method}; retry other method`);
+                    if (method === 'http' && ALLOW_PLAYWRIGHT) {
+                        console.log(`[${rowNo}] retry=playwright url=${url}`);
+                        await tryPw();
+                        method = 'playwright';
                     }
-                    catch { }
+                    else if (method === 'playwright') {
+                        try {
+                            console.log(`[${rowNo}] retry=http url=${url}`);
+                            await tryHttp();
+                            method = 'http';
+                        }
+                        catch { }
+                    }
                 }
             }
             console.log(`[${rowNo}] metrics staff=${metrics?.staff ?? '-'} rlab=${metrics?.rlab ?? '-'} fish=${metrics?.fish ?? '-'} names=${metrics?.names ?? '-'}`);
             if (!selfCheck(site, method, metrics)) {
                 console.log(`FAIL row=${rowNo} url=${url} reason=self-check`);
+                failedUrls.push(url);
                 failCnt++;
                 continue;
             }
-            // Save local (artifact)
+            // Save local (artifact) + meta
             const u = new URL(url);
             const slug = toSlug(u);
             const stamp = new Date().toISOString().replace(/[-:]/g, '').replace('T', '_').slice(0, 15);
             const fname = `${prefix}-${slug}-${stamp}.html`;
             const fpath = path.join('captures', fname);
             await fs.writeFile(fpath, html, 'utf8');
-            // Upload to Drive（OAuthを優先）
-            let created;
+            const metaPath = path.join('captures', `${prefix}-${slug}-${stamp}.meta.json`);
+            const capMeta = {
+                url,
+                university: univ || null,
+                graduate_school: grad || null,
+                site,
+                methodUsed: method,
+                saved_at_iso: new Date().toISOString(),
+                output: path.resolve(fpath),
+                metrics,
+                row_index: rowNo,
+            };
             try {
-                created = await drive.files.create({
-                    requestBody: { name: fname, parents: [DRIVE_FOLDER_ID], mimeType: 'text/html' },
-                    media: { mimeType: 'text/html', body: fs.createReadStream(fpath) }, fields: 'id, webViewLink', supportsAllDrives: true,
-                });
+                await fs.writeJson(metaPath, capMeta, { spaces: 2 });
             }
-            catch (e) {
-                const msg = e?.message || String(e);
-                console.error('Drive upload error:', msg);
-                throw e;
-            }
-            const id = created.data.id;
-            await ensureLinkSharing(drive, id);
-            const meta = await drive.files.get({ fileId: id, fields: 'id, webViewLink', supportsAllDrives: true });
-            const link = meta.data.webViewLink || `https://drive.google.com/file/d/${id}/view`;
-            updates.push({ r: rowNo, link });
+            catch { }
             okCnt++;
-            console.log(`OK row=${rowNo} url=${url} method=${method} site=${site} out=${fname} drive=${link}`);
+            console.log(`OK row=${rowNo} url=${url} method=${method} site=${site} out=${fname} (no Drive upload at capture stage)`);
         }
         catch (e) {
             console.log(`FAIL row=${rowNo} url=${url} reason=${e?.message || String(e)}`);
+            failedUrls.push(url);
             failCnt++;
         }
     }
-    if (updates.length) {
-        const data = updates.map(u => ({ range: `${sheetName}!K${u.r}`, values: [[u.link]] }));
-        await sheets.spreadsheets.values.batchUpdate({ spreadsheetId: SHEET_ID, requestBody: { valueInputOption: 'RAW', data } });
-    }
+    // No sheet updates here — K/J are updated after cleaning in pushDir.
     console.log(`Summary: ok=${okCnt} skip=${skipCnt} fail=${failCnt}`);
+    try {
+        await fs.writeJson(path.join('captures', '_summary.json'), { ok: okCnt, skip: skipCnt, fail: failCnt, failedUrls }, { spaces: 2 });
+    }
+    catch { }
     // ok が 0 件でもジョブ全体は継続できるよう非エラー終了
     // （後段ステップで captures/ の有無を確認しつつ処理する）
     // if (okCnt === 0) process.exit(1);
