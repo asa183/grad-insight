@@ -103,3 +103,6 @@ python scripts/sheet_blocks_from_examples.py --sheet-id $SHEET_ID --examples-nam
 
 ---
 非互換な仕様変更はありません。既存の Examples/CI 運用を維持しつつ、未指定ページでも `auto` 判定とアダプタ知見で回収率と安定性を高めます。
+
+## 開発ルール (Development Rules)
+- **一時ファイルの取り扱い**: 作業時や検証目的で作成する一時的なスクリプトファイル（`test_*.py` 等）は、ルートディレクトリではなく必ず `temp/` フォルダ内に格納して作業を行うこと。ルートディレクトリを乱雑にしないこと。
