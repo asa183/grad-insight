@@ -54,6 +54,7 @@ def enumerate_dom_items(
     nav_timeout_ms: int | None = None,
     action_timeout_ms: int | None = None,
     overall_timeout_ms: int | None = None,
+    actions: List[str] = None,
 ) -> List[Dict[str, str]]:
     """Enumerate DOM items by selectors, capturing outerHTML and per-item screenshots.
 
@@ -87,6 +88,31 @@ def enumerate_dom_items(
             except Exception:
                 pass
             page.goto(url, wait_until="networkidle")
+            
+            if actions:
+                for action in actions:
+                    parts = action.split(maxsplit=2)
+                    if not parts: continue
+                    cmd = parts[0].lower()
+                    try:
+                        if cmd == "click" and len(parts) >= 2:
+                            page.click(parts[1], force=True)
+                        elif cmd == "select" and len(parts) >= 3:
+                            page.select_option(parts[1], parts[2], force=True)
+                        elif cmd == "fill" and len(parts) >= 3:
+                            page.fill(parts[1], parts[2], force=True)
+                        elif cmd == "wait" and len(parts) >= 2:
+                            sleep(int(parts[1]) / 1000)
+                        elif cmd == "wait_for" and len(parts) >= 2:
+                            page.wait_for_selector(parts[1])
+                    except Exception as e:
+                        print(f"WARN enum action failed: {action} -> {e}")
+                
+                try:
+                    page.wait_for_load_state("networkidle", timeout=10000)
+                except Exception:
+                    pass
+
             if dynamic:
                 sleep(1.0)
             out_dir = os.path.join("evidence", "_screenshots")

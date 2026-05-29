@@ -28,12 +28,12 @@ rows = ws.get_all_records()
 
 items = []
 for r in rows:
-    if not is_enabled(r.get("有効", "")):
+    if "有効" in r and not is_enabled(r.get("有効", "")):
         continue
 
-    univ = (r.get("大学名", "") or "").strip()
-    grad = (r.get("研究科", "") or "").strip()
-    url = (r.get("研究科URL", "") or r.get("出典URL", "") or "").strip()
+    univ = (r.get("university_name", "") or r.get("大学名", "") or "").strip()
+    grad = (r.get("department_name", "") or r.get("研究科", "") or "").strip()
+    url = (r.get("source_url", "") or r.get("研究科URL", "") or r.get("出典URL", "") or "").strip()
     if not (univ or grad or url):
         continue
 
@@ -75,11 +75,18 @@ for r in rows:
         "enabled": True,
         "fixed": fixed,
     }
+    
+    raw_actions = (r.get("actions", "") or r.get("抽出アクション", "") or "").strip()
+    actions = [a.strip() for a in raw_actions.split('\n') if a.strip()]
+
     if page_type:
         item["page_type"] = page_type
     if selectors:
         item["selectors"] = selectors
-    if truthy(r.get("動的取得", "")):
+    if actions:
+        item["actions"] = actions
+        item["dynamic"] = True
+    elif truthy(r.get("動的取得", "")):
         item["dynamic"] = True
 
     items.append(item)

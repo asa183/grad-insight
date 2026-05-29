@@ -314,9 +314,9 @@ def run_target(t: dict) -> list[dict]:
         merge_count = {"link": 0, "name+lab": 0, "name": 0, "frag": 0, "anon": 0}
         ts_fetch_start = time.time()
         # Always fetch/scan page info when URL is provided, even if fixed values are complete.
-        # Purpose: CSS empty should still trigger fallback extraction to gather page info.
+        actions = t.get("actions")
         if url:
-            html = fetch_dynamic_html(url) if t.get("dynamic") else fetch_html(url)
+            html = fetch_dynamic_html(url, actions=actions) if t.get("dynamic") else fetch_html(url)
             # DOM enumeration first
             try:
                 item_selectors = []
@@ -371,6 +371,7 @@ def run_target(t: dict) -> list[dict]:
                     dynamic=bool(t.get("dynamic")),
                     max_items=max_items_env,
                     max_screenshots=max_shots_env,
+                    actions=actions,
                 )
                 print(f"INFO examples id={t.get('id','')}: dom_items={len(dom_items)} selectors_tried={len(item_selectors)} max_items={max_items_env} max_shots={max_shots_env}")
             except Exception:
@@ -720,7 +721,8 @@ def run_target(t: dict) -> list[dict]:
         url = p["url"]
         if not url:
             continue
-        html = fetch_dynamic_html(url) if p.get("dynamic") else fetch_html(url)
+        actions = t.get("actions")
+        html = fetch_dynamic_html(url, actions=actions) if p.get("dynamic") else fetch_html(url)
         # Auto classify when unspecified
         rows = extract_by_type(html, p.get("page_type", "auto"), p.get("selectors", {}))
         run_id = os.environ.get("GITHUB_RUN_ID") or os.environ.get("RUN_ID") or today.replace("-", "")
